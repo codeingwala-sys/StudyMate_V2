@@ -16,7 +16,16 @@
       ]
     },
     {
-      "source": "/(icons|assets)/.*",
+      "source": "/icons/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/assets/:path*",
       "headers": [
         {
           "key": "Cache-Control",
@@ -26,10 +35,6 @@
     }
   ],
   "rewrites": [
-    {
-      "source": "/(.*?)\\.(js|css|png|svg|ico|json|woff2|woff)",
-      "destination": "/$1.$2"
-    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
