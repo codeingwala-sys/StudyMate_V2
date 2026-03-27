@@ -6,6 +6,7 @@ import Router from './Router'
 import { useAppStore } from './store'
 import { isLoggedIn, refreshSession } from '../services/supabase'
 import { useRegisterSW } from 'virtual:pwa-register/react'
+import { Analytics } from '@vercel/analytics/react'
 
 export default function App() {
   const [splashDone,   setSplashDone]   = useState(false)
@@ -128,6 +129,7 @@ export default function App() {
           to   { opacity:1; transform:translateX(-50%) translateY(0) }
         }
       `}</style>
+      <Analytics />
     </ErrorBoundary>
   )
 }
