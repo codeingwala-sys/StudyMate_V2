@@ -28,7 +28,7 @@ export default function PracticeHub() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            {['MCQs','Fill-in','True/False'].map(t => (
+            {['MCQs', 'Fill-in', 'True/False'].map(t => (
               <span key={t} style={{ fontSize: 11, color: 'rgba(167,139,250,0.8)', background: 'rgba(167,139,250,0.1)', padding: '4px 10px', borderRadius: 20, fontFamily: 'Inter,sans-serif', fontWeight: 600 }}>{t}</span>
             ))}
           </div>
@@ -50,9 +50,60 @@ export default function PracticeHub() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            {['PYQs','Adaptive Difficulty','Weak Area Focus'].map(t => (
+            {['PYQs', 'Adaptive Difficulty', 'Weak Area Focus'].map(t => (
               <span key={t} style={{ fontSize: 11, color: 'rgba(74,222,128,0.8)', background: 'rgba(74,222,128,0.08)', padding: '4px 10px', borderRadius: 20, fontFamily: 'Inter,sans-serif', fontWeight: 600 }}>{t}</span>
             ))}
+          </div>
+        </div>
+
+        {/* Card 3 - Recall Battles */}
+        <div className="pressable" onClick={() => navigate('/practice/battle')} style={{
+          background: isDark ? 'linear-gradient(135deg,rgba(249,115,22,0.1),rgba(234,88,12,0.05))' : 'linear-gradient(135deg,rgba(251,146,60,0.06),rgba(249,115,22,0.03))',
+          border: '1px solid rgba(249,115,22,0.18)', borderRadius: 22, padding: '22px 20px', cursor: 'pointer',
+        }}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+            <div style={{ width: 50, height: 50, borderRadius: 14, background: 'rgba(249,115,22,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 24 }}>⚔️</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <p style={{ fontSize: 17, fontWeight: 700, color: t.text, letterSpacing: '-0.3px', fontFamily: 'Inter,sans-serif' }}>Recall Battles</p>
+                <span style={{ fontSize: 10, fontWeight: 600, background: 'rgba(249,115,22,0.15)', color: '#f97316', padding: '2px 8px', borderRadius: 6, fontFamily: 'Inter,sans-serif' }}>Multiplayer</span>
+              </div>
+              <p style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.5, fontFamily: 'Inter,sans-serif' }}>Compete with others in real-time. High stakes, live ranking, and instant feedback.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 4 - Study Buddies */}
+        <div className="pressable" onClick={() => navigate('/practice/study-buddies')} style={{
+          background: isDark ? 'linear-gradient(135deg,rgba(167,139,250,0.1),rgba(139,92,246,0.05))' : 'linear-gradient(135deg,rgba(167,139,250,0.06),rgba(139,92,246,0.03))',
+          border: '1px solid rgba(167,139,250,0.2)', borderRadius: 22, padding: '22px 20px', cursor: 'pointer',
+        }}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+            <div style={{ width: 50, height: 50, borderRadius: 14, background: 'rgba(167,139,250,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 24 }}>🤝</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <p style={{ fontSize: 17, fontWeight: 700, color: t.text, letterSpacing: '-0.3px', fontFamily: 'Inter,sans-serif' }}>Study Buddies</p>
+                <span style={{ fontSize: 10, fontWeight: 600, background: 'rgba(167,139,250,0.15)', color: '#a78bfa', padding: '2px 8px', borderRadius: 6, fontFamily: 'Inter,sans-serif' }}>Focus Friends</span>
+              </div>
+              <p style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.5, fontFamily: 'Inter,sans-serif' }}>Study alongside friends with synced focus timers and shared accountability.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 5 - Syllabus Map */}
+        <div className="pressable" onClick={() => navigate('/practice/syllabus')} style={{
+          background: isDark ? 'linear-gradient(135deg,rgba(251,191,36,0.1),rgba(217,119,6,0.05))' : 'linear-gradient(135deg,rgba(251,191,36,0.06),rgba(217,119,6,0.03))',
+          border: '1px solid rgba(251,191,36,0.2)', borderRadius: 22, padding: '22px 20px', cursor: 'pointer',
+        }}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+            <div style={{ width: 50, height: 50, borderRadius: 14, background: 'rgba(251,191,36,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 24 }}>📜</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <p style={{ fontSize: 17, fontWeight: 700, color: t.text, letterSpacing: '-0.3px', fontFamily: 'Inter,sans-serif' }}>Syllabus Map</p>
+                <span style={{ fontSize: 10, fontWeight: 600, background: 'rgba(251,191,36,0.15)', color: '#fbbf24', padding: '2px 8px', borderRadius: 6, fontFamily: 'Inter,sans-serif' }}>Roadmap</span>
+              </div>
+              <p style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.5, fontFamily: 'Inter,sans-serif' }}>Import your university syllabus to generate a study plan and track knowledge gaps.</p>
+            </div>
           </div>
         </div>
       </div>
