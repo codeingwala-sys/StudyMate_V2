@@ -20,6 +20,7 @@ function TaskForm({ onAdd, onCancel, viewDate, t }) {
   const notesRef    = useRef(null)
   const [priority,  setPriority]  = useState('Medium')
   const [taskType,  setTaskType]  = useState('Study')
+  const [error,     setError]     = useState(false)
 
   const inp = {
     background: t.inputBg, border: `1px solid ${t.border}`,
@@ -30,7 +31,12 @@ function TaskForm({ onAdd, onCancel, viewDate, t }) {
 
   const handleAdd = () => {
     const title = titleRef.current?.value?.trim()
-    if (!title) return
+    if (!title) {
+      setError(true)
+      setTimeout(() => setError(false), 600)
+      return
+    }
+    setError(false)
     haptic.success()
     onAdd({
       title,
@@ -53,16 +59,13 @@ function TaskForm({ onAdd, onCancel, viewDate, t }) {
   )
 
   return (
-    <div style={{ background:t.card, border:`1px solid ${t.border}`, borderRadius:20, padding:18, marginBottom:14, animation:'fadeIn 0.2s ease' }}>
+    <div style={{ background:t.card, border:`1px solid ${t.border}`, borderRadius:20, padding:18, paddingBottom: 120, marginBottom:14, animation:'fadeIn 0.2s ease', position:'relative', zIndex:10 }}>
       <F label="Task Title" required>
         <input
           ref={titleRef}
           placeholder="What do you need to do?"
           defaultValue=""
-          // KEY FIX: no onChange/value — this is uncontrolled.
-          // The input handles its own state; we only read it on submit.
-          style={inp}
-          // Keep keyboard open on mobile
+          style={{ ...inp, border: error ? '1px solid #f87171' : inp.border, boxShadow: error ? '0 0 10px rgba(248,113,113,0.3)' : 'none', animation: error ? 'shake 0.4s ease' : 'none' }}
           autoFocus
         />
       </F>
@@ -267,7 +270,10 @@ export default function DailyPlanner() {
           </div>
         ))}
       </div>
-      <style>{`@keyframes fadeIn{from{opacity:0}to{opacity:1}}`}</style>
+      <style>{`
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+      `}</style>
     </div>
   )
 }
