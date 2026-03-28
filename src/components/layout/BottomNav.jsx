@@ -18,7 +18,7 @@ export default function BottomNav() {
   return (
     <div style={{ position:'absolute', bottom:0, left:0, right:0, zIndex:50 }}>
       <div style={{ height:40, background:`linear-gradient(to top, ${isDark?'rgba(0,0,0,0.92)':'rgba(240,240,240,0.92)'} 0%, transparent 100%)`, pointerEvents:'none' }} />
-      <div style={{ background: isDark?'rgba(0,0,0,0.75)':'rgba(240,240,240,0.82)', backdropFilter:'blur(28px) saturate(180%)', WebkitBackdropFilter:'blur(28px) saturate(180%)', borderTop:`1px solid ${t.border}`, padding:'8px 4px 20px', display:'flex', alignItems:'center', justifyContent:'space-around' }}>
+      <div style={{ background: isDark?'rgba(0,0,0,0.75)':'rgba(240,240,240,0.82)', backdropFilter:'blur(28px) saturate(180%)', WebkitBackdropFilter:'blur(28px) saturate(180%)', borderTop:`1px solid ${t.border}`, padding:`8px 4px calc(8px + var(--safe-bottom, 20px))`, display:'flex', alignItems:'center', justifyContent:'space-around' }}>
         {TABS.map(({ label, path, icon }) => {
           const active = isActive(path)
           return (
