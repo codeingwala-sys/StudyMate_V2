@@ -4,39 +4,69 @@ export const API_KEY = (import.meta.env.VITE_GROQ_API_KEY || '').trim().replace(
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 
+async function callWithRetry(fn, retries = 2, delay = 1000) {
+  try {
+    return await fn()
+  } catch (error) {
+    if (retries <= 0) throw error
+    await new Promise(resolve => setTimeout(resolve, delay))
+    return callWithRetry(fn, retries - 1, delay * 2)
+  }
+}
+
+function extractJSON(text) {
+  if (!text) return ''
+  // Remove markdown blocks if present
+  let cleaned = text.replace(/```json\n?|```\n?/g, '').trim()
+  // Find the first '[' or '{' and last ']' or '}'
+  const startIdx = cleaned.search(/[\[\{]/)
+  const endIdx = Math.max(cleaned.lastIndexOf(']'), cleaned.lastIndexOf('}'))
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    return cleaned.slice(startIdx, endIdx + 1)
+  }
+  return cleaned
+}
+
 async function callGroq(systemPrompt, userMessage, maxTokens = 1024) {
   if (!API_KEY || API_KEY.length < 10) {
-    throw new Error('Groq API Key is missing or too short. Please check your .env file.')
+    throw new Error('Groq API Key is missing or too short. Please check your .env file and restart the dev server.')
   }
-  const response = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userMessage },
-      ],
-      max_tokens: maxTokens,
-      temperature: 0.4,
-    }),
-  })
-  if (!response.ok) {
-    console.error(`Groq API Error: ${response.status}`, {
-      keyPrefix: API_KEY ? API_KEY.slice(0, 10) + '...' : 'MISSING',
-      keySuffix: API_KEY ? '...' + API_KEY.slice(-4) : 'MISSING'
+
+  const performCall = async () => {
+    const response = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: userMessage },
+        ],
+        max_tokens: maxTokens,
+        temperature: 0.4,
+      }),
     })
-    if (response.status === 401) {
-      throw new Error(`Invalid Groq API Key. If you just updated .env, please RESTART YOUR DEV SERVER and verify the key at console.groq.com.`)
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error(`Invalid Groq API Key. Verify it at console.groq.com.`)
+      }
+      if (response.status === 429) {
+        throw new Error('Groq rate limit reached. Please wait a moment.')
+      }
+      const err = await response.json().catch(() => ({}))
+      throw new Error(err.error?.message || `Groq API error ${response.status}`)
     }
-    const err = await response.json().catch(() => ({}))
-    throw new Error(err.error?.message || `Groq API error ${response.status}`)
+
+    const data = await response.json()
+    const content = data.choices?.[0]?.message?.content || ''
+    return extractJSON(content)
   }
-  const data = await response.json()
-  return (data.choices?.[0]?.message?.content || '').replace(/```json\n?|```\n?/g, '').trim()
+
+  return await callWithRetry(performCall)
 }
 
 export async function generateQuestionsFromText(text, count, difficulty = 'medium') {
@@ -122,6 +152,40 @@ export async function generateFlashcards(text, count) {
 Return ONLY valid JSON array:
 [{"front":"key term or concept from the text","back":"definition or explanation from the text"}]`
   const raw = await callGroq(system, `Create flashcards from:\n\n${text}`, 1500)
+  try { return JSON.parse(raw) } catch { return [] }
+}
+
+export async function generateSocraticResponse(history, subject, topic, noteContent = '') {
+  const seed = Math.random().toString(36).slice(2, 8)
+  const system = `You are an expert Adaptive Socratic Examiner (session: ${seed}). Your goal is to conduct a "Viva" (oral-style exam) to test and deepen the student's understanding of ${topic} in ${subject}.
+  
+  ${noteContent ? `CONTEXT: The student is being tested based on these specific notes:\n${noteContent}\n\n` : ''}
+  Rules:
+  1. DO NOT give direct answers.
+  2. ADAPTIVE DIFFICULTY: Start with fundamental concepts. If the student shows mastery, increase complexity. If they struggle, provide scaffolding (hints/simpler questions).
+  3. PROBING QUESTIONS: If the student gives a vague answer (e.g., "It's a mechanism for X"), challenge them to explain the specific underlying mechanism or "how" it works. Use the phrase: "You mentioned X, but can you explain the mechanism behind it?" when appropriate.
+  4. EVALUATION: You decide when the session is over. If the student has demonstrated peak mastery of the topic, offer a final commendation and conclude. If they are stuck after multiple hints, gently suggest a specific area for them to re-read.
+  5. STYLE: Be "hard" but fair—like an academic examiner. Keep responses concise and focused.
+  
+  Current session history:
+  ${history.map(h => `${h.role === 'user' ? 'Student' : 'Examiner'}: ${h.content}`).join('\n')}
+  `
+  return await callGroq(system, history[history.length - 1]?.content || `Let's begin your viva on ${topic}${noteContent ? ' based on your notes' : ''}. What's the core principle of this topic?`, 600)
+}
+
+export async function parseSyllabus(text) {
+  const system = `Extract a structured syllabus from the text. 
+  Return ONLY a valid JSON object:
+  {"name":"Syllabus Name","topics":[{"name":"Topic 1","subtopics":["Sub A","Sub B"]},{"name":"Topic 2","subtopics":["Sub C"]}]}`
+  const raw = await callGroq(system, `Parse this syllabus text:\n\n${text}`, 2500)
+  try { return JSON.parse(raw) } catch { return null }
+}
+
+export async function generateRoadmap(syllabusData, weeks = 12) {
+  const system = `Generate a ${weeks}-week study roadmap based on this syllabus.
+  Return ONLY a valid JSON array:
+  [{"week":1,"goal":"Master Topic X","tasks":["Read Y","Practice Z"]}]`
+  const raw = await callGroq(system, `Create roadmap for:\n\n${JSON.stringify(syllabusData)}`, 2000)
   try { return JSON.parse(raw) } catch { return [] }
 }
 
