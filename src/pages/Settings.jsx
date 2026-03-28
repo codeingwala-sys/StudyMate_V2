@@ -129,7 +129,7 @@ export default function Settings() {
     try {
       const allData = {
         exportedAt: new Date().toISOString(),
-        version:    '1.2.0',
+        version:    '1.3.0',
         user:       savedUser,
         notes,
         tasks,
@@ -202,6 +202,17 @@ export default function Settings() {
             <div style={{ display:'flex',gap:8 }}>
               <input value={localName} onChange={e=>setLocalName(e.target.value)} placeholder="Display name" style={{...inp, flex:1, width:'auto'}} />
               <button onClick={saveName} style={{ padding:'9px 18px',borderRadius:10,background:T.btnBg,border:'none',color:T.btnText,fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'Inter,sans-serif',flexShrink:0 }}>Save</button>
+            </div>
+            
+            <div style={{ marginTop:20, padding:16, background:T.inputBg, borderRadius:16, border:`1px solid ${T.border}` }}>
+              <h4 style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:4 }}>Cloud Troubleshooting</h4>
+              <p style={{ fontSize:11, color:T.muted, marginBottom:12 }}>If you see 403 errors or sync fails, try repairing your session. This will log you out and refresh your connection.</p>
+              <button 
+                onClick={hardResetSession} 
+                style={{ width:'100%', padding:'10px', borderRadius:10, background:T.bg2, border:`1px solid ${T.border}`, color:T.text, fontSize:11, fontWeight:700, cursor:'pointer' }}
+              >
+                Repair Cloud Connection
+              </button>
             </div>
           </div>
         </Section>
@@ -343,6 +354,28 @@ export default function Settings() {
               {checkingUpdate ? 'Checking...' : 'Check for Updates'}
             </button>
           </div>
+
+          {/* Sync button */}
+          <div style={{ padding:'0 18px 14px' }}>
+            <button
+              onClick={async () => {
+                const { syncFromCloud } = useAppStore.getState()
+                await syncFromCloud()
+              }}
+              style={{
+                width:'100%', padding:'12px', borderRadius:12,
+                background: T.greenBg,
+                border: `1px solid ${T.greenBrd}`,
+                color: T.green,
+                fontSize:13, fontWeight:700, cursor:'pointer',
+                fontFamily:'Inter,sans-serif',
+                display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              Sync Data Now
+            </button>
+          </div>
         </Section>
 
         {/* ── ABOUT ── */}
@@ -352,7 +385,7 @@ export default function Settings() {
               <div style={{ width:46,height:46,borderRadius:14,background:isDark?'rgba(96,165,250,0.1)':'rgba(37,99,235,0.08)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,color:isDark?'#60a5fa':'#2563eb' }}>✦</div>
               <div>
                 <p style={{ fontSize:16,fontWeight:700,color:T.text,fontFamily:'Inter,sans-serif' }}>StudyMate</p>
-                <p style={{ fontSize:12,color:T.muted,fontFamily:'Inter,sans-serif',marginTop:2 }}>Version 1.2.0 · AI-powered</p>
+                <p style={{ fontSize:12,color:T.muted,fontFamily:'Inter,sans-serif',marginTop:2 }}>Version 1.3.0 · AI-powered</p>
               </div>
             </div>
             <p style={{ fontSize:13,color:T.muted,fontFamily:'Inter,sans-serif',lineHeight:1.6 }}>
