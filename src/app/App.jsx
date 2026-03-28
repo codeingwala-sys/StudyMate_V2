@@ -7,6 +7,7 @@ import { useAppStore } from './store'
 import { isLoggedIn, refreshSession } from '../services/supabase'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { Analytics } from '@vercel/analytics/react'
+import PWAInstallPrompt from '../components/PWAInstallPrompt'
 
 export default function App() {
   const [splashDone,   setSplashDone]   = useState(false)
@@ -44,9 +45,18 @@ export default function App() {
         }
       }
     }
+
+    // Periodic sync every 10 minutes
+    const syncInterval = setInterval(() => {
+      if (isLoggedIn()) syncFromCloud().catch(() => {})
+    }, 10 * 60 * 1000)
+
     document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [])
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(syncInterval)
+    }
+  }, [refreshStreak, syncFromCloud])
 
   // ── SERVICE WORKER AUTO-UPDATE ──────────────────────────────────────────
   // Using vite-plugin-pwa/react for robust update management
@@ -56,7 +66,6 @@ export default function App() {
     updateServiceWorker
   } = useRegisterSW({
     onRegistered(r) {
-      console.log('[StudyMate] SW Registered:', r)
       // Check for updates every hour
       r && setInterval(() => { r.update() }, 60 * 60 * 1000)
     },
@@ -130,6 +139,7 @@ export default function App() {
         }
       `}</style>
       <Analytics />
+      <PWAInstallPrompt />
     </ErrorBoundary>
   )
 }

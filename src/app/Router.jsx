@@ -10,14 +10,21 @@ import NoteEditor from '../pages/learn/NoteEditor'
 import Flashcards from '../pages/learn/Flashcards'
 import VoiceOverview from '../pages/learn/VoiceOverview'
 import MindMap from '../pages/learn/MindMap'
+import SocraticViva from '../pages/learn/SocraticViva'
 import PracticeHub from '../pages/practice/PracticeHub'
 import ModeOne from '../pages/practice/ModeOne'
 import ModeTwo from '../pages/practice/ModeTwo'
+import BattleHub from '../pages/practice/BattleHub'
+import BattleSession from '../pages/practice/BattleSession'
 import Results from '../pages/practice/Results'
 import FocusHub from '../pages/focus/FocusHub'
 import ForestTimer from '../pages/focus/ForestTimer'
 import DailyPlanner from '../pages/focus/DailyPlanner'
 import ProgressHub from '../pages/progress/ProgressHub'
+import WhiteboardHub from '../pages/learn/WhiteboardHub'
+import StudyBuddies from '../pages/practice/BuddyHub'
+import SyllabusHub from '../pages/practice/SyllabusHub'
+import PublicNoteView from '../pages/learn/PublicNoteView'
 
 export default function Router() {
   return (
@@ -36,14 +43,21 @@ export default function Router() {
               <Route path="/learn/flashcards" element={<Flashcards />} />
               <Route path="/learn/voice"      element={<VoiceOverview />} />
               <Route path="/learn/mindmap"    element={<MindMap />} />
+               <Route path="/learn/socratic"   element={<SocraticViva />} />
+              <Route path="/learn/whiteboard" element={<WhiteboardHub />} />
               <Route path="/practice"         element={<PracticeHub />} />
               <Route path="/practice/mode1"   element={<ModeOne />} />
-              <Route path="/practice/mode2"   element={<ModeTwo />} />
-              <Route path="/practice/results" element={<Results />} />
+               <Route path="/practice/mode2"   element={<ModeTwo />} />
+               <Route path="/practice/battle"  element={<BattleHub />} />
+               <Route path="/practice/battle/:id" element={<div style={{padding:20}}>Battle Room coming soon...</div>} />
+               <Route path="/practice/study-buddies" element={<StudyBuddies />} />
+               <Route path="/practice/syllabus" element={<SyllabusHub />} />
+               <Route path="/practice/results" element={<Results />} />
               <Route path="/focus"            element={<FocusHub />} />
               <Route path="/focus/timer"      element={<ForestTimer />} />
               <Route path="/focus/planner"    element={<DailyPlanner />} />
               <Route path="/progress"         element={<ProgressHub />} />
+              <Route path="/share/:id"        element={<PublicNoteView />} />
               <Route path="*"                 element={<Navigate to="/" replace />} />
             </Routes>
           </PageWrapper>
