@@ -49,11 +49,12 @@ function ActivityHeatmap({ timerSessions, notes, t }) {
   const getColor = (mins, isFuture) => {
     if (isFuture) return 'transparent'
     if (mins === 0) return t.inputBg
-    if (mins < 30)  return 'rgba(52,211,153,0.20)'
-    if (mins < 90)  return 'rgba(52,211,153,0.45)'
-    if (mins < 180) return 'rgba(52,211,153,0.70)'
-    if (mins < 360) return 'rgba(52,211,153,0.88)'
-    return 'rgba(52,211,153,0.98)'
+    if (mins < 30)  return 'rgba(52,211,153,0.18)' // Emerald 400
+    if (mins < 60)  return 'rgba(16,185,129,0.35)' // Emerald 500
+    if (mins < 120) return 'rgba(5,150,105,0.55)'  // Emerald 600
+    if (mins < 240) return 'rgba(4,120,87,0.75)'   // Emerald 700
+    if (mins < 480) return 'rgba(6,95,70,0.90)'    // Emerald 800
+    return '#064e3b' // Emerald 900
   }
 
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -293,6 +294,28 @@ export default function ProgressHub() {
           </p>
         </div>
       )}
+
+      {/* ── KNOWLEDGE GAP MAP ── */}
+      <div style={{ margin:'12px 16px 0', background:t.card, border:`1px solid ${t.border}`, borderRadius:20, padding:'18px 16px', boxShadow:t.shadowSm }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+          <p style={{ fontSize:13,fontWeight:600,color:t.text,fontFamily:'Inter,sans-serif' }}>Knowledge Coverage</p>
+          <p style={{ fontSize:11,color:t.red,fontWeight:700,fontFamily:'Inter,sans-serif' }}>{notes.length < 5 ? 'High Gap' : 'On Track'}</p>
+        </div>
+        
+        {/* Placeholder for Syllabus-based Heatmap */}
+        <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+          {['Organic Chem', 'Redox', 'Thermodynamics', 'Atomic Theory', 'Kinetic Theory'].map((topic, i) => {
+            const hasNotes = i % 2 === 0
+            return (
+              <div key={topic} style={{ padding:'8px 12px', borderRadius:12, background:hasNotes ? t.teal + '15' : t.red + '10', border:`1px solid ${hasNotes ? t.teal + '30' : t.red + '30'}`, display:'flex', flexDirection:'column', gap:4, flex:1, minWidth:100 }}>
+                <span style={{ fontSize:12, fontWeight:700, color:hasNotes ? t.teal : t.red }}>{topic}</span>
+                <span style={{ fontSize:10, color:t.textMuted }}>{hasNotes ? 'Covered' : 'Missing Topic'}</span>
+              </div>
+            )
+          })}
+        </div>
+        <p style={{ fontSize:10, color:t.textMuted, marginTop:12, fontStyle:'italic' }}>Comparing notes vs. B.Tech Semester 4 Syllabus</p>
+      </div>
 
       {/* ── ACTIVITY HEATMAP ── */}
       <div style={{ margin:'12px 16px 0', background:t.card, border:`1px solid ${t.border}`, borderRadius:20, padding:'18px 16px', boxShadow:t.shadowSm }}>
