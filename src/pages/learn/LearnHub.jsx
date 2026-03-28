@@ -7,6 +7,8 @@ const TOOLS = [
   { icon: '🃏', label: 'Flashcards',     sub: 'AI-generated cards',   path: '/learn/flashcards', color: '#b07eff' },
   { icon: '🎧', label: 'Voice Overview', sub: 'Listen to notes',      path: '/learn/voice',      color: '#ff7eb3' },
   { icon: '🗺️', label: 'Mind Map',       sub: 'Visualise concepts',   path: '/learn/mindmap',    color: '#7effd4' },
+  { icon: '🤔', label: 'Socratic Viva',  sub: 'Adaptive Exam',        path: '/learn/socratic',   color: '#ff9a7e' },
+  { icon: '🎨', label: 'Whiteboard',     sub: 'Collab Mind-Sync',     path: '/learn/whiteboard', color: '#7eb8ff' },
 ]
 const COLORS = ['#7eb8ff','#b07eff','#7effd4','#ffd97e']
 
