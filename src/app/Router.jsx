@@ -38,8 +38,8 @@ export default function Router() {
               <Route path="/"                 element={<Home />} />
               <Route path="/learn"            element={<LearnHub />} />
               <Route path="/learn/notes"      element={<NotesList />} />
-              <Route path="/learn/notes/new"  element={<NoteEditor />} />
-              <Route path="/learn/notes/:id"  element={<NoteEditor />} />
+              <Route path="/learn/notes/new"  element={<NoteEditor key="new" />} />
+              <Route path="/learn/notes/:id"  element={<NoteEditor key={window.location.pathname} />} />
               <Route path="/learn/flashcards" element={<Flashcards />} />
               <Route path="/learn/voice"      element={<VoiceOverview />} />
               <Route path="/learn/mindmap"    element={<MindMap />} />

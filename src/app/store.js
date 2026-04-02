@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { upsertNote, deleteNoteRemote, upsertTask, deleteTaskRemote, upsertSession, pullFromCloud, pushAllToCloud, upsertPreferences } from '../services/supabase'
+import { upsertNote, deleteNoteRemote, upsertTask, deleteTaskRemote, upsertSession, pullFromCloud, pushAllToCloud, upsertPreferences, supabase } from '../services/supabase'
 
 const today     = () => new Date().toISOString().slice(0, 10)
 const yesterday = () => { const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10) }
@@ -59,7 +59,7 @@ export const useAppStore = create(
       deletedNotes: [],
 
       addNote: (note) => {
-        const n = { ...note, id: String(note.id || Date.now()), createdAt: new Date().toISOString() }
+        const n = { ...note, id: String(note.id || Date.now()), createdAt: new Date().toISOString(), updated_at: new Date().toISOString() }
         set(s => ({ notes: [n, ...s.notes.filter(x => String(x.id) !== String(n.id))] }))
         upsertNote(n).catch(() => {})
       },
@@ -77,7 +77,11 @@ export const useAppStore = create(
           })
         }))
         const updated = get().notes.find(n => String(n.id) === sId)
-        if (updated) upsertNote(updated).catch(() => {})
+        if (updated) {
+          const withTime = { ...updated, updated_at: new Date().toISOString() }
+          set(s => ({ notes: s.notes.map(n => String(n.id) === sId ? withTime : n) }))
+          upsertNote(withTime).catch(() => {})
+        }
       },
 
       deleteNote: (id) => {
@@ -94,14 +98,15 @@ export const useAppStore = create(
       deletedTasks: [],
 
       addTask: (task) => {
-        const t = { ...task, id: String(task.id || Date.now()), done: false }
+        const t = { ...task, id: String(task.id || Date.now()), done: false, updated_at: new Date().toISOString() }
         set(s => ({ tasks: [...s.tasks, t] }))
         upsertTask(t).catch(() => {})
       },
 
       toggleTask: (id) => {
         const sId = String(id)
-        set(s => ({ tasks: s.tasks.map(t => String(t.id) === sId ? { ...t, done: !t.done } : t) }))
+        const now = new Date().toISOString()
+        set(s => ({ tasks: s.tasks.map(t => String(t.id) === sId ? { ...t, done: !t.done, updated_at: now } : t) }))
         const t = get().tasks.find(t => String(t.id) === sId)
         if (t) upsertTask(t).catch(() => {})
       },
@@ -119,7 +124,7 @@ export const useAppStore = create(
       timerSessions: [],
 
       addSession: (session) => {
-        const withId = { ...session, id: String(session.id || Date.now()) }
+        const withId = { ...session, id: String(session.id || Date.now()), updated_at: new Date().toISOString() }
         set(s => {
           const newSessions = [withId, ...s.timerSessions]
           const { streak, todayStudied } = calcStreakAndToday(newSessions)
@@ -247,6 +252,43 @@ export const useAppStore = create(
           console.error('Sync error:', e)
           set({ syncing: false })
         }
+      },
+
+      // ── REALTIME SUBSCRIPTION ───────────────────────────────────────────────
+      subscribeToRealtime: () => {
+        if (!supabase) return;
+
+        const sub = supabase
+          .channel('any')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, (payload) => {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const cloudItem = payload.new
+              const cloudTime = new Date(cloudItem.updated_at).getTime()
+              const localItem = get().notes.find(n => String(n.id) === String(cloudItem.id))
+              const localTime = localItem?.updated_at ? new Date(localItem.updated_at).getTime() : 0
+              if (!localItem || cloudTime > localTime) {
+                set(s => ({ notes: [cloudItem, ...s.notes.filter(n => String(n.id) !== String(cloudItem.id))] }))
+              }
+            } else if (payload.eventType === 'DELETE') {
+              set(s => ({ notes: s.notes.filter(n => String(n.id) !== String(payload.old.id)) }))
+            }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const cloudItem = payload.new
+              const cloudTime = new Date(cloudItem.updated_at).getTime()
+              const localItem = get().tasks.find(t => String(t.id) === String(cloudItem.id))
+              const localTime = localItem?.updated_at ? new Date(localItem.updated_at).getTime() : 0
+              if (!localItem || cloudTime > localTime) {
+                set(s => ({ tasks: [cloudItem, ...s.tasks.filter(t => String(t.id) !== String(cloudItem.id))] }))
+              }
+            } else if (payload.eventType === 'DELETE') {
+              set(s => ({ tasks: s.tasks.filter(t => String(t.id) !== String(payload.old.id)) }))
+            }
+          })
+          .subscribe()
+
+        return () => supabase.removeChannel(sub)
       },
 
       // ── MISC ────────────────────────────────────────────────────────────────

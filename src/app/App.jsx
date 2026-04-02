@@ -15,6 +15,7 @@ export default function App() {
   const syncFromCloud   = useAppStore(s => s.syncFromCloud)
   const syncing         = useAppStore(s => s.syncing)
   const lastSyncedAt    = useAppStore(s => s.lastSyncedAt)
+  const subscribeToRealtime = useAppStore(s => s.subscribeToRealtime)
 
   // Recalculate streak every time the app loads / becomes visible
   useEffect(() => {
@@ -32,6 +33,15 @@ export default function App() {
       } catch(e) {}
     }
     doSync()
+
+    // Realtime subscription
+    const unsubscribe = subscribeToRealtime()
+
+    // Handle online event
+    const onOnline = () => {
+      if (isLoggedIn()) syncFromCloud().catch(() => {})
+    }
+    window.addEventListener('online', onOnline)
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
@@ -57,9 +67,11 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', onOnline)
       clearInterval(syncInterval)
+      if (unsubscribe) unsubscribe()
     }
-  }, [refreshStreak, syncFromCloud])
+  }, [refreshStreak, syncFromCloud, subscribeToRealtime])
 
   // ── SERVICE WORKER AUTO-UPDATE ──────────────────────────────────────────
   // Using vite-plugin-pwa/react for robust update management
