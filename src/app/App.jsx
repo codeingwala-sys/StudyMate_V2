@@ -16,10 +16,13 @@ export default function App() {
   const syncing         = useAppStore(s => s.syncing)
   const lastSyncedAt    = useAppStore(s => s.lastSyncedAt)
   const subscribeToRealtime = useAppStore(s => s.subscribeToRealtime)
+  const initBackup          = useAppStore(s => s.initBackup)
+  const user            = useAppStore(s => s.user)
 
   // Recalculate streak every time the app loads / becomes visible
   useEffect(() => {
     refreshStreak()
+    initBackup().catch(() => {})
     // Sync from cloud on app start if user is logged in
     // Refresh session token if needed, then sync
     const doSync = async () => {
@@ -34,7 +37,7 @@ export default function App() {
     }
     doSync()
 
-    // Realtime subscription
+    // Realtime subscription — restart when user changes (login/logout)
     const unsubscribe = subscribeToRealtime()
 
     // Handle online event
@@ -55,23 +58,22 @@ export default function App() {
         }
       }
     }
+    window.addEventListener('visibilitychange', onVisible)
 
     // Periodic sync every 60 seconds when app is visible
     const syncInterval = setInterval(() => {
-      if (isLoggedIn() && document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && isLoggedIn()) {
         syncFromCloud().catch(() => {})
       }
-    }, 60 * 1000)
+    }, 60000)
 
-
-    document.addEventListener('visibilitychange', onVisible)
     return () => {
-      document.removeEventListener('visibilitychange', onVisible)
+      unsubscribe()
       window.removeEventListener('online', onOnline)
+      window.removeEventListener('visibilitychange', onVisible)
       clearInterval(syncInterval)
-      if (unsubscribe) unsubscribe()
     }
-  }, [refreshStreak, syncFromCloud, subscribeToRealtime])
+  }, [user?.id, refreshStreak, syncFromCloud, subscribeToRealtime])
 
   // ── SERVICE WORKER AUTO-UPDATE ──────────────────────────────────────────
   // Using vite-plugin-pwa/react for robust update management
@@ -138,13 +140,7 @@ export default function App() {
       )}
 
 
-      {/* Sync indicator — subtle, bottom right */}
-      {syncing && (
-        <div style={{ position:'fixed', bottom:16, right:16, zIndex:9998, background:'rgba(0,0,0,0.75)', backdropFilter:'blur(8px)', borderRadius:20, padding:'7px 14px', display:'flex', alignItems:'center', gap:7, pointerEvents:'none' }}>
-          <div style={{ width:7, height:7, borderRadius:'50%', background:'#60a5fa', animation:'syncPulse 1s ease-in-out infinite' }} />
-          <span style={{ fontSize:11, color:'rgba(255,255,255,0.7)', fontFamily:'Inter,sans-serif' }}>Syncing...</span>
-        </div>
-      )}
+      {/* Sync indicator moved to Header.jsx for cleaner UI */}
 
       <style>{`
         @keyframes syncPulse { 0%,100%{opacity:0.4;transform:scale(0.9)} 50%{opacity:1;transform:scale(1.1)} }
@@ -152,6 +148,7 @@ export default function App() {
           from { opacity:0; transform:translateX(-50%) translateY(20px) }
           to   { opacity:1; transform:translateX(-50%) translateY(0) }
         }
+        @keyframes sm-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }
       `}</style>
       <Analytics />
       <PWAInstallPrompt />

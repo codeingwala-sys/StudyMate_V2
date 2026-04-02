@@ -51,6 +51,7 @@ export default function Router() {
                <Route path="/practice/battle"  element={<BattleHub />} />
                <Route path="/practice/battle/:id" element={<BattleSession />} />
                <Route path="/practice/study-buddies" element={<StudyBuddies />} />
+               <Route path="/practice/study-buddies/:id" element={<StudyBuddies />} />
                <Route path="/practice/syllabus" element={<SyllabusHub />} />
                <Route path="/practice/results" element={<Results />} />
               <Route path="/focus"            element={<FocusHub />} />

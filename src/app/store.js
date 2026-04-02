@@ -1,9 +1,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { upsertNote, deleteNoteRemote, upsertTask, deleteTaskRemote, upsertSession, pullFromCloud, pushAllToCloud, upsertPreferences, supabase } from '../services/supabase'
+import * as backupService from '../services/backup.service'
 
 const today     = () => new Date().toISOString().slice(0, 10)
 const yesterday = () => { const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10) }
+
+let globalChannel = null
 
 function calcStreakAndToday(sessions = []) {
   const todayStr     = today()
@@ -55,13 +58,43 @@ export const useAppStore = create(
       setUser: (user) => set({ user }),
 
       // ── NOTES ──────────────────────────────────────────────────────────────
+      syncStatus: 'idle',
+      isBackupActive: false,
+      backupHandle: null,
+
+      triggerLocalBackup: () => {
+        const s = get()
+        if (!s.isBackupActive) return
+        backupService.syncToFolder(s).catch(() => {})
+      },
+
+      initBackup: async () => {
+        const h = await backupService.getExistingHandle()
+        if (h) {
+          const ok = await backupService.verifyPermission(h)
+          set({ isBackupActive: ok, backupHandle: ok ? h : null })
+          if (ok) get().triggerLocalBackup()
+        }
+      },
+
+      enableBackup: async () => {
+        const h = await backupService.requestFolderAccess()
+        if (h) {
+          set({ isBackupActive: true, backupHandle: h })
+          get().triggerLocalBackup()
+          return true
+        }
+        return false
+      },
       notes: [],
       deletedNotes: [],
 
       addNote: (note) => {
         const n = { ...note, id: String(note.id || Date.now()), createdAt: new Date().toISOString(), updated_at: new Date().toISOString() }
         set(s => ({ notes: [n, ...s.notes.filter(x => String(x.id) !== String(n.id))] }))
-        upsertNote(n).catch(() => {})
+        set({ syncing: true })
+        upsertNote(n).then(() => set({ syncing: false })).catch(() => set({ syncing: false }))
+        get().triggerLocalBackup()
       },
 
       updateNote: (id, data) => {
@@ -70,18 +103,46 @@ export const useAppStore = create(
           notes: s.notes.map(n => {
             if (String(n.id) !== sId) return n
             const safe = { ...data }
+            
+            // 🛑 COMPREHENSIVE PROTECTIVE MERGE
+            // 1. Content: Refuse to overwrite content with empty/whitespace if local has content
             if (!safe.content?.trim() && n.content?.trim()) delete safe.content
             if (!safe.html?.trim()    && n.html?.trim())    delete safe.html
-            if (!safe.title?.trim()   && n.title?.trim())   delete safe.title
+            
+            // 2. Title: Never overwrite a real title with "Untitled Note" or empty string
+            if (n.title && n.title !== 'Untitled Note') {
+              if (safe.title === 'Untitled Note' || !safe.title?.trim()) {
+                delete safe.title
+              }
+            }
+            
+            // 3. Category/Tags: Refuse empty categories if note already has a category
+            const hasExistingTags = n.tags && n.tags.length > 0 && n.tags[0] !== 'Uncategorized'
+            const incomingTagsEmpty = !safe.tags || safe.tags.length === 0 || (safe.tags.length === 1 && !safe.tags[0])
+            if (hasExistingTags && incomingTagsEmpty) {
+              delete safe.tags
+            }
+            
+            // 4. Checklists: Protect existing lists from being wiped by an un-indexed editor
+            if (n.checklists?.length > 0 && (!safe.checklists || safe.checklists.length === 0)) {
+              delete safe.checklists
+            }
+            
             return { ...n, ...safe }
           })
         }))
+        
         const updated = get().notes.find(n => String(n.id) === sId)
-        if (updated) {
+        if (!updated) return;
+
+        set(s => {
           const withTime = { ...updated, updated_at: new Date().toISOString() }
-          set(s => ({ notes: s.notes.map(n => String(n.id) === sId ? withTime : n) }))
-          upsertNote(withTime).catch(() => {})
-        }
+          const next = { notes: s.notes.map(n => String(n.id) === sId ? withTime : n) }
+          set({ syncing: true })
+          upsertNote(withTime).then(() => set({ syncing: false })).catch(() => set({ syncing: false }))
+          return next
+        })
+        get().triggerLocalBackup()
       },
 
       deleteNote: (id) => {
@@ -90,7 +151,9 @@ export const useAppStore = create(
           notes: s.notes.filter(n => String(n.id) !== sId),
           deletedNotes: [...(s.deletedNotes || []), { id: sId, timestamp: Date.now() }]
         }))
-        deleteNoteRemote(sId).catch(() => {})
+        set({ syncing: true })
+        deleteNoteRemote(sId).then(() => set({ syncing: false })).catch(() => set({ syncing: false }))
+        get().triggerLocalBackup()
       },
 
       // ── TASKS ───────────────────────────────────────────────────────────────
@@ -100,7 +163,9 @@ export const useAppStore = create(
       addTask: (task) => {
         const t = { ...task, id: String(task.id || Date.now()), done: false, updated_at: new Date().toISOString() }
         set(s => ({ tasks: [...s.tasks, t] }))
-        upsertTask(t).catch(() => {})
+        set({ syncing: true })
+        upsertTask(t).then(() => set({ syncing: false })).catch(() => set({ syncing: false }))
+        get().triggerLocalBackup()
       },
 
       toggleTask: (id) => {
@@ -108,7 +173,11 @@ export const useAppStore = create(
         const now = new Date().toISOString()
         set(s => ({ tasks: s.tasks.map(t => String(t.id) === sId ? { ...t, done: !t.done, updated_at: now } : t) }))
         const t = get().tasks.find(t => String(t.id) === sId)
-        if (t) upsertTask(t).catch(() => {})
+        if (t) {
+          set({ syncing: true })
+          upsertTask(t).then(() => set({ syncing: false })).catch(() => set({ syncing: false }))
+        }
+        get().triggerLocalBackup()
       },
 
       deleteTask: (id) => {
@@ -117,7 +186,9 @@ export const useAppStore = create(
           tasks: s.tasks.filter(t => String(t.id) !== sId),
           deletedTasks: [...(s.deletedTasks || []), { id: sId, timestamp: Date.now() }]
         }))
-        deleteTaskRemote(sId).catch(() => {})
+        set({ syncing: true })
+        deleteTaskRemote(sId).then(() => set({ syncing: false })).catch(() => set({ syncing: false }))
+        get().triggerLocalBackup()
       },
 
       // ── SESSIONS ────────────────────────────────────────────────────────────
@@ -131,7 +202,9 @@ export const useAppStore = create(
           const personalBests = calcPersonalBests(newSessions, s.testResults)
           return { timerSessions: newSessions, streak, todayStudied, lastStreakDate: today(), personalBests }
         })
-        upsertSession(withId).catch(() => {})
+        set({ syncing: true })
+        upsertSession(withId).then(() => set({ syncing: false })).catch(() => set({ syncing: false }))
+        get().triggerLocalBackup()
       },
 
       refreshStreak: () => set(s => {
@@ -173,7 +246,8 @@ export const useAppStore = create(
           const newRestores = [...(state.streakRestores || []), new Date().toISOString()]
           return { timerSessions: newSessions, streak, todayStudied, streakRestores: newRestores }
         })
-        upsertSession(dummySession).catch(() => {})
+        set({ syncing: true })
+        upsertSession(dummySession).then(() => set({ syncing: false })).catch(() => set({ syncing: false }))
         return true
       },
 
@@ -248,6 +322,7 @@ export const useAppStore = create(
           // After pulling and merging, push back the merged state to ensure cloud is up to date
           // with any local-only items that were merged in.
           await pushAllToCloud(get()).catch(err => console.warn('Sync push error:', err))
+          set({ syncing: false })
         } catch (e) {
           console.error('Sync error:', e)
           set({ syncing: false })
