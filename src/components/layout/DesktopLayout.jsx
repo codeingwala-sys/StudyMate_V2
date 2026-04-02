@@ -575,7 +575,7 @@ function DesktopNoteEditor({ t, isDark, noteId }) {
 
   // ── Save (defined first — needed by insertDrawingDataUrl below) ──────────────
   const saveNow = useCallback(() => {
-    const titleVal = titleRef.current?.trim(); if (!titleVal) return
+    const titleVal = titleRef.current?.trim() || 'Untitled Note'
     const el = editorRef.current
     const html = el ? (el.innerHTML || '') : ''
     const content = el ? (el.textContent || '') : ''
