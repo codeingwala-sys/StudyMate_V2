@@ -3,9 +3,9 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from '../../app/useTheme'
 import { useAppStore } from '../../app/store'
-import { supabase } from '../../services/supabase'
 import { haptic } from '../../utils/haptics'
 import Header from '../../components/layout/Header'
+import { useBattleRoom } from '../../services/multiplayer'
 
 export default function BattleSession() {
   const { id: battleId } = useParams()
@@ -14,103 +14,42 @@ export default function BattleSession() {
   const { t } = useTheme()
   const { user } = useAppStore()
 
-  // Room State
-  const [topic] = useState(state?.topic || 'Knowledge Battle')
-  const [questions] = useState(state?.questions || [])
-  const [isHost] = useState(state?.isHost || false)
-  const [hostName] = useState(state?.hostName || 'Host')
-  
-  const [currentIdx, setCurrentIdx] = useState(0)
-  const [scores, setScores] = useState({}) // { userId: { name, score, lastAnswer } }
+  const isHost = state?.isHost || false
+
+  // ── Supabase Realtime Integration ───────────────────────────────────────
+  const { battle, startBattle: triggerStart, updateScore, nextQuestion } = useBattleRoom(
+    battleId, 
+    user, 
+    isHost, 
+    state?.topic, 
+    state?.questions
+  )
+
   const [answered, setAnswered] = useState(false)
   const [selectedOpt, setSelectedOpt] = useState(null)
   const [timeLeft, setTimeLeft] = useState(15)
-  const [gameStatus, setGameStatus] = useState('waiting') // 'waiting', 'playing', 'finished'
   
-  const channelRef = useRef(null)
   const timerRef = useRef(null)
 
-  // ── Realtime Setup ────────────────────────────────────────────────────────
+  const currentIdx = battle?.currentQuestion || 0
+  const gameStatus = battle?.status || 'waiting'
+  const questions = battle?.questions || []
+  const topic = battle?.topic || 'Knowledge Battle'
+  const sortedPlayers = [...(battle?.players || [])].sort((a, b) => b.score - a.score)
+  const currentQ = (questions && questions.length > 0 && currentIdx < questions.length) 
+    ? questions[currentIdx] 
+    : { q: 'Loading...', options: ['...', '...', '...', '...'], answer: 0 }
+
+  // ── Timer Logic ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!battleId) return
-
-    const channel = supabase.channel(`battle-${battleId}`, {
-      config: { presence: { key: user?.id || 'anon' } }
-    })
-    channelRef.current = channel
-
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const presenceState = channel.presenceState()
-        const newScores = {}
-        Object.values(presenceState).forEach(presences => {
-          presences.forEach(p => {
-            newScores[p.id || p.user_id] = {
-              name: p.name || 'Anonymous',
-              score: p.score || 0,
-              lastAnswer: p.lastAnswer || null,
-              isHost: p.isHost || false
-            }
-          })
-        })
-        setScores(newScores)
-      })
-      .on('broadcast', { event: 'next-question' }, ({ payload }) => {
-        setCurrentIdx(payload.index)
-        setAnswered(false)
-        setSelectedOpt(null)
-        setTimeLeft(15)
-        setGameStatus('playing')
-        haptic.light()
-      })
-      .on('broadcast', { event: 'game-over' }, () => {
-        setGameStatus('finished')
-        haptic.success()
-      })
-      .on('broadcast', { event: 'start-game' }, () => {
-         setGameStatus('playing')
-         setTimeLeft(15)
-         haptic.medium()
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          // Track self in presence
-          await channel.track({
-            id: user?.id || 'anon',
-            name: user?.name || 'Explorer',
-            score: 0,
-            isHost
-          })
-
-          // If I am the host, I tell the lobby I am hosting
-          if (isHost) {
-            const lobby = supabase.channel('studymate-lobby')
-            lobby.subscribe(async (s) => {
-              if (s === 'SUBSCRIBED') {
-                await lobby.track({
-                  isHosting: true,
-                  battle: { id: battleId, topic, questions, hostName: user?.name || 'Host', playerCount: 1 }
-                })
-              }
-            })
-          }
-        }
-      })
-
-    return () => { 
-      channel.unsubscribe()
+    if (gameStatus === 'active' && !answered) {
       if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [battleId, user, isHost, topic, questions])
-
-  // ── Timer Logic (Host only or local sync) ──────────────────────────────────
-  useEffect(() => {
-    if (gameStatus === 'playing' && !answered) {
+      setTimeLeft(15)
       timerRef.current = setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 1) {
             clearInterval(timerRef.current)
-            handleAutoSubmit()
+            if (!answered) handleAnswer(-1)
             return 0
           }
           return prev - 1
@@ -118,73 +57,46 @@ export default function BattleSession() {
       }, 1000)
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameStatus, currentIdx, answered])
 
-  const handleAutoSubmit = () => {
-    if (!answered) handleAnswer(-1)
-  }
+  // Reset answered state when question changes
+  useEffect(() => {
+    setAnswered(false)
+    setSelectedOpt(null)
+  }, [currentIdx])
 
-  const handleAnswer = async (optIdx) => {
-    if (answered) return
+  const handleAnswer = (optIdx) => {
+    if (answered || gameStatus !== 'active') return
     setAnswered(true)
     setSelectedOpt(optIdx)
     haptic.light()
 
-    const correct = questions[currentIdx].answer === optIdx
+    const correct = optIdx === currentQ.answer
     const points = correct ? Math.max(10, timeLeft * 10) : 0
 
-    // Update Presence with new score
-    const myPresence = scores[user?.id || 'anon'] || {}
-    const newTotal = (myPresence.score || 0) + points
-
-    await channelRef.current.track({
-      id: user?.id || 'anon',
-      name: user?.name || 'Explorer',
-      score: newTotal,
-      lastAnswer: optIdx,
-      isHost
-    })
+    updateScore(points)
 
     if (correct) haptic.success(); else haptic.notification('error')
 
     // If Host, wait a bit then go to next
     if (isHost) {
       setTimeout(() => {
-        if (currentIdx < questions.length - 1) {
-          const next = currentIdx + 1
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'next-question',
-            payload: { index: next }
-          })
-          // Local update for host
-          setCurrentIdx(next)
-          setAnswered(false)
-          setSelectedOpt(null)
-          setTimeLeft(15)
-        } else {
-          channelRef.current.send({ type: 'broadcast', event: 'game-over' })
-          setGameStatus('finished')
-        }
+        nextQuestion()
       }, 3000)
     }
   }
 
-  const startBattle = async () => {
+  const startBattle = () => {
     if (!isHost) return
-    channelRef.current.send({ type: 'broadcast', event: 'start-game' })
-    setGameStatus('playing')
-    setTimeLeft(15)
+    triggerStart()
   }
 
-  const sortedPlayers = Object.values(scores).sort((a, b) => b.score - a.score)
-  const currentQ = questions[currentIdx]
-
-  if (!questions.length) return <div style={{ padding:40, textAlign:'center', color:t.text }}>Loading Battle...</div>
+  if (!battle) return <div style={{ padding:40, textAlign:'center', color:t.text }}>Loading Battle...</div>
 
   return (
     <div style={{ padding:'0 0 80px', minHeight:'100vh', display:'flex', flexDirection:'column', background:t.bg }}>
-      <Header title={topic} subtitle={gameStatus === 'playing' ? `Question ${currentIdx + 1}/${questions.length}` : 'Multiplayer Battle'} back />
+      <Header title={topic} subtitle={gameStatus === 'active' ? `Question ${currentIdx + 1}/${questions.length}` : 'Multiplayer Battle'} back />
 
       <main style={{ flex:1, padding:'16px', display:'flex', flexDirection:'column', gap:20 }}>
         
@@ -198,8 +110,8 @@ export default function BattleSession() {
             </div>
             
             <div style={{ display:'flex', flexWrap:'wrap', gap:10, justifyContent:'center' }}>
-              {Object.values(scores).map(p => (
-                <div key={p.name} style={{ background:t.card, padding:'12px 20px', borderRadius:20, border:`1px solid ${t.border}`, fontSize:14, fontWeight:750, color:t.text, boxShadow:t.shadow }}>
+              {battle.players.map(p => (
+                <div key={p.id} style={{ background:t.card, padding:'12px 20px', borderRadius:20, border:`1px solid ${t.border}`, fontSize:14, fontWeight:750, color:t.text, boxShadow:t.shadow }}>
                    {p.isHost ? '👑 ' : ''}{p.name}
                 </div>
               ))}
@@ -219,113 +131,127 @@ export default function BattleSession() {
         )}
 
         {/* Playing State */}
-        {gameStatus === 'playing' && currentQ && (
+        {gameStatus === 'active' && (
           <div style={{ flex:1, display:'flex', flexDirection:'column', gap:20 }}>
-            {/* Timer & Players */}
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end' }}>
-               <div style={{ display:'flex', gap:6 }}>
-                  {sortedPlayers.slice(0, 3).map((p, i) => (
-                    <div key={p.name} style={{ width:36, height:36, borderRadius:12, background: i===0 ? '#fbbf24' : i===1 ? '#94a3b8' : '#3b82f6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:900, color:'#fff', border:`3px solid ${t.bg}`, boxShadow:t.shadow }}>
-                      {p.name.charAt(0)}
-                    </div>
-                  ))}
-               </div>
-               <div style={{ textAlign:'right' }}>
-                 <p style={{ fontSize:11, fontWeight:900, color:t.textMuted, textTransform:'uppercase', letterSpacing:'1.5px', marginBottom:4 }}>TIMER</p>
-                 <h2 style={{ fontSize:42, fontWeight:900, color: timeLeft < 5 ? '#ef4444' : t.text, margin:0, fontFamily:'DM Mono, monospace', lineHeight:1 }}>{timeLeft}</h2>
-               </div>
+            {/* Timer & Progress */}
+            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:10 }}>
+              <div style={{ flex:1, height:6, background:t.border, borderRadius:3, overflow:'hidden' }}>
+                <motion.div 
+                  initial={{ width:'100%' }}
+                  animate={{ width:`${(timeLeft / 15) * 100}%` }}
+                  transition={{ duration:1, ease:'linear' }}
+                  style={{ height:'100%', background: timeLeft > 5 ? t.blue : '#f87171' }}
+                />
+              </div>
+              <span style={{ fontSize:14, fontWeight:800, color: timeLeft > 5 ? t.text : '#f87171', minWidth:30, textAlign:'right', fontFamily:'DM Mono,monospace' }}>{timeLeft}s</span>
             </div>
 
             {/* Question Card */}
             <AnimatePresence mode="wait">
               <motion.div 
                 key={currentIdx}
-                initial={{ opacity:0, scale:0.95 }} 
-                animate={{ opacity:1, scale:1 }} 
-                exit={{ opacity:0, scale:0.95 }}
-                style={{ background:t.card, border:`1px solid ${t.border}`, borderRadius:28, padding:'32px 24px', boxShadow:t.shadow, position:'relative' }}
+                initial={{ opacity:0, y:20 }}
+                animate={{ opacity:1, y:0 }}
+                exit={{ opacity:0, y:-20 }}
+                style={{ background:t.card, padding:'32px 24px', borderRadius:24, border:`1px solid ${t.border}`, boxShadow:t.shadow, position:'relative', minHeight:160, display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center' }}
               >
-                <div style={{ position:'absolute', top:-12, left:24, background:t.blue, color:'#fff', padding:'4px 12px', borderRadius:10, fontSize:11, fontWeight:800 }}>QUESTION {currentIdx + 1}</div>
-                <p style={{ fontSize:19, fontWeight:800, color:t.text, lineHeight:1.5, marginBottom:28, fontFamily:'Inter, sans-serif' }}>{currentQ.q}</p>
-                
-                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                  {currentQ.options.map((opt, i) => {
-                    const isCorrect = currentQ.answer === i
-                    const isSelected = selectedOpt === i
-                    let bg = t.inputBg, border = t.border, color = t.text
-                    
-                    if (answered) {
-                      if (isCorrect) { bg = '#22c55e20'; border = '#22c55e'; color = '#22c55e' }
-                      else if (isSelected) { bg = '#ef444420'; border = '#ef4444'; color = '#ef4444' }
-                    } else if (isSelected) {
-                      bg = t.text; color = t.bg
-                    }
-
-                    return (
-                      <button 
-                        key={i}
-                        onClick={() => handleAnswer(i)}
-                        disabled={answered}
-                        style={{ width:'100%', padding:'18px 24px', borderRadius:18, background:bg, border:`2.5px solid ${border}`, color, fontSize:15, fontWeight:800, textAlign:'left', transition:'all 0.2s', cursor:answered ? 'default' : 'pointer', display:'flex', alignItems:'center', gap:14 }}
-                      >
-                        <div style={{ width:26, height:26, borderRadius:8, background: isSelected ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, flexShrink:0 }}>{String.fromCharCode(65+i)}</div>
-                        <span style={{ flex:1 }}>{opt}</span>
-                      </button>
-                    )
-                  })}
-                </div>
+                <h2 style={{ fontSize:22, fontWeight:800, color:t.text, lineHeight:1.3 }}>{currentQ.q}</h2>
               </motion.div>
             </AnimatePresence>
 
-            {/* Live Leaderboard Footer */}
-            <div style={{ background:t.card + '90', borderRadius:24, padding:'16px 20px', display:'flex', alignItems:'center', gap:12, marginTop:'auto', border:`1px solid ${t.border}`, backdropFilter:'blur(12px)', boxShadow:t.shadow }}>
-               <div style={{ display:'flex', alignItems:'center', gap:6, paddingRight:12, borderRight:`1px solid ${t.border}` }}>
-                  <div style={{ width:8, height:8, borderRadius:'50%', background:'#22c55e', animation:'pulse 1.5s infinite' }} />
-                  <span style={{ fontSize:11, fontWeight:900, color:t.textMuted, textTransform:'uppercase' }}>LIVE</span>
-               </div>
-               <div style={{ flex:1, display:'flex', gap:24, overflowX:'auto' }}>
-                  {sortedPlayers.map((p, idx) => (
-                    <div key={p.name} style={{ display:'flex', alignItems:'center', gap:8, whiteSpace:'nowrap' }}>
-                      <span style={{ fontSize:14, fontWeight:800, color: idx===0 ? '#fbbf24' : t.text }}>{p.name}</span>
-                      <span style={{ fontSize:14, fontWeight:900, color:t.blue, opacity:0.9 }}>{p.score}</span>
-                    </div>
-                  ))}
-               </div>
+            {/* Options */}
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              {currentQ.options.map((opt, optIdx) => {
+                const isSelected = selectedOpt === optIdx
+                const isCorrect = optIdx === currentQ.answer
+                let bg = t.card, border = t.border, color = t.text, opacity = 1
+                
+                if (answered) {
+                  if (isCorrect) { bg = 'rgba(74,222,128,0.15)'; border = '#4ade80'; color = '#4ade80' }
+                  else if (isSelected) { bg = 'rgba(248,113,113,0.15)'; border = '#f87171'; color = '#f87171' }
+                  else { opacity = 0.5 }
+                } else if (isSelected) {
+                  bg = t.blue + '15'; border = t.blue;
+                }
+
+                return (
+                  <motion.button
+                    disabled={answered}
+                    key={optIdx}
+                    whileTap={{ scale:0.98 }}
+                    onClick={() => handleAnswer(optIdx)}
+                    style={{ 
+                      padding:'18px 20px', borderRadius:18, background:bg, border:`2px solid ${border}`, 
+                      color:color, fontSize:15, fontWeight:700, cursor:answered ? 'default' : 'pointer',
+                      display:'flex', alignItems:'center', gap:14, transition:'all 0.2s', textAlign:'left', opacity
+                    }}
+                  >
+                    <span style={{ width:28, height:28, borderRadius:8, background:t.inputBg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800 }}>{String.fromCharCode(65+optIdx)}</span>
+                    <span style={{ flex:1 }}>{opt}</span>
+                    {answered && isCorrect && <span style={{ fontSize:18 }}>✓</span>}
+                  </motion.button>
+                )
+              })}
+            </div>
+
+            {/* Mini Leaderboard */}
+            <div style={{ marginTop:'auto', padding:'16px', background:t.inputBg, borderRadius:20, border:`1px solid ${t.border}` }}>
+              <p style={{ fontSize:11, fontWeight:700, color:t.textMuted, textTransform:'uppercase', letterSpacing:'1px', marginBottom:12 }}>Live Standings</p>
+              <div style={{ display:'flex', gap:10, overflowX:'auto', paddingBottom:4 }}>
+                {sortedPlayers.map((p, i) => (
+                  <div key={p.id} style={{ flexShrink:0, background:t.card, padding:'8px 14px', borderRadius:12, border:`1px solid ${t.border}`, display:'flex', alignItems:'center', gap:8 }}>
+                    <span style={{ fontSize:12, fontWeight:800, color:t.textMuted }}>#{i+1}</span>
+                    <span style={{ fontSize:13, fontWeight:700, color:t.text }}>{p.name}</span>
+                    <span style={{ fontSize:13, fontWeight:800, color:t.blue }}>{p.score}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Result State */}
+        {/* Finished State */}
         {gameStatus === 'finished' && (
-          <div style={{ flex:1, display:'flex', flexDirection:'column', gap:28, paddingBottom:40 }}>
-            <div style={{ textAlign:'center' }}>
-              <p style={{ fontSize:64, marginBottom:16 }}>🏆</p>
-              <h2 style={{ fontSize:32, fontWeight:900, color:t.text, letterSpacing:'-1px', marginBottom:8, lineHeight:1 }}>Battle Finished!</h2>
-              <p style={{ fontSize:15, color:t.textMuted }}>Great competition on {topic}</p>
+          <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', textAlign:'center', gap:32 }}>
+            <div style={{ position:'relative' }}>
+              <motion.div initial={{ scale:0 }} animate={{ scale:1 }} style={{ fontSize:80 }}>🏆</motion.div>
+              <motion.div animate={{ rotate:360 }} transition={{ repeat:Infinity, duration:10, ease:'linear' }} style={{ position:'absolute', top:-10, left:-10, right:-10, bottom:-10, border:`2px dashed ${t.blue}`, borderRadius:'50%', opacity:0.3 }} />
             </div>
 
-            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-               {sortedPlayers.map((p, i) => (
-                 <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} transition={{ delay:i*0.1 }} key={p.name} style={{ background:t.card, border:`1px solid ${i===0?t.amber:t.border}`, borderRadius:24, padding:'20px 24px', display:'flex', alignItems:'center', gap:20, boxShadow:t.shadow }}>
-                    <div style={{ width:44, height:44, borderRadius:14, background: i===0 ? '#fbbf24' : t.inputBg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, fontWeight:900, color: i===0 ? '#000' : t.textMuted }}>
-                      {i + 1}
-                    </div>
-                    <div style={{ flex:1 }}>
-                      <p style={{ fontSize:17, fontWeight:800, color:t.text, margin:0 }}>{p.name} {p.id === user?.id ? '(You)' : ''}</p>
-                      <p style={{ fontSize:12, color:t.textMuted, margin:'2px 0 0' }}>{p.score} points earned</p>
-                    </div>
-                    <div style={{ textAlign:'right' }}>
-                       <span style={{ fontSize:22, fontWeight:950, color: i===0 ? '#fbbf24' : t.blue }}>#{i+1}</span>
-                    </div>
-                 </motion.div>
-               ))}
+            <div>
+              <h2 style={{ fontSize:32, fontWeight:900, color:t.text, marginBottom:8 }}>Battle Finished!</h2>
+              <p style={{ fontSize:15, color:t.textMuted }}>Great job on <b>{topic}</b></p>
+            </div>
+
+            <div style={{ width:'100%', maxWidth:340, display:'flex', flexDirection:'column', gap:12 }}>
+              {sortedPlayers.map((p, i) => (
+                <motion.div 
+                  initial={{ opacity:0, x:-20 }}
+                  animate={{ opacity:1, x:0 }}
+                  transition={{ delay: i * 0.1 }}
+                  key={p.id} 
+                  style={{ 
+                    background: i === 0 ? t.blue + '10' : t.card, 
+                    padding:'16px 20px', borderRadius:20, 
+                    border:`1px solid ${i === 0 ? t.blue : t.border}`, 
+                    display:'flex', alignItems:'center', gap:16, boxShadow:t.shadow
+                  }}
+                >
+                  <span style={{ fontSize:18, fontWeight:900, color: i === 0 ? t.blue : t.textMuted, width:24 }}>{i+1}</span>
+                  <div style={{ flex:1, textAlign:'left' }}>
+                    <p style={{ fontSize:15, fontWeight:850, color:t.text }}>{p.name}</p>
+                    <p style={{ fontSize:12, color:t.textMuted }}>{p.score} Total Points</p>
+                  </div>
+                  {i === 0 && <span style={{ fontSize:20 }}>👑</span>}
+                </motion.div>
+              ))}
             </div>
 
             <button 
-              onClick={() => nav('/practice/battle')}
-              style={{ width:'100%', padding:'20px', borderRadius:20, background:t.text, color:t.bg, border:'none', fontSize:17, fontWeight:900, cursor:'pointer', marginTop:20, boxShadow:'0 10px 30px rgba(0,0,0,0.2)' }}
+              onClick={() => nav('/practice')}
+              style={{ width:'100%', padding:'18px', borderRadius:20, background:t.text, color:t.bg, border:'none', fontSize:16, fontWeight:800, cursor:'pointer', marginTop:10 }}
             >
-              Finish Battle
+              Back to Practice Hub
             </button>
           </div>
         )}
@@ -339,3 +265,6 @@ export default function BattleSession() {
     </div>
   )
 }
+
+
+

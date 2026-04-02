@@ -7,6 +7,7 @@ import Header from '../../components/layout/Header'
 import { haptic } from '../../utils/haptics'
 import { shareContent } from '../../utils/share'
 import { generateQuestionsFromText } from '../../services/ai.service'
+import { useLiveBattles } from '../../services/multiplayer'
 
 export default function BattleHub() {
   const { t } = useTheme()
@@ -18,42 +19,8 @@ export default function BattleHub() {
   const [loading, setLoading] = useState(false)
   
   const [onlineCount, setOnlineCount] = useState(1)
-  const [liveBattles, setLiveBattles] = useState([])
 
-  // ── Sync Presence ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    const channel = supabase.channel('studymate-lobby', {
-      config: { presence: { key: user?.id || 'anon' } }
-    })
-
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState()
-        const battles = []
-        let count = 0
-        Object.values(state).forEach(presences => {
-          count += presences.length
-          presences.forEach(p => {
-            if (p.isHosting && p.battle) {
-              battles.push(p.battle)
-            }
-          })
-        })
-        setLiveBattles(battles)
-        setOnlineCount(count)
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await channel.track({
-            online_at: new Date().toISOString(),
-            name: user?.name || 'Explorer',
-            isHosting: false
-          })
-        }
-      })
-
-    return () => { channel.unsubscribe() }
-  }, [user])
+  const liveBattles = useLiveBattles()
 
   const handleShare = async () => {
     if (!topic.trim()) {
@@ -81,10 +48,10 @@ export default function BattleHub() {
       
       if (!questions || !Array.isArray(questions)) throw new Error('Failed to generate questions')
 
-      // 2. Battle ID
-      const battleId = Math.random().toString(36).substring(2, 9)
+      // Use a random local ID for the initial battle room creation
+      const battleId = `battle-${Date.now()}`
       
-      // 3. Navigate with data
+      // Navigate to BattleSession which will hook up the Supabase Realtime Channel
       nav(`/practice/battle/${battleId}`, { 
         state: { 
           topic, 
@@ -94,20 +61,21 @@ export default function BattleHub() {
         } 
       })
     } catch (e) {
+      console.error('Battle create error:', e)
       alert('AI is busy! Try a different topic or try again in a moment.')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleJoin = (battle) => {
+  const handleJoin = async (battle) => {
     haptic.success()
-    nav(`/practice/battle/${battle.id}`, { 
+    nav(`/practice/battle/${battle._id}`, { 
       state: { 
         topic: battle.topic,
         questions: battle.questions,
         isHost: false,
-        hostName: battle.hostName
+        hostName: battle.hostName || 'Host'
       } 
     })
   }
@@ -149,10 +117,10 @@ export default function BattleHub() {
                 </button>
               </div>
             ) : liveBattles.map(b => (
-              <div key={b.id} style={{ background:t.card, border:`1px solid ${t.border}`, borderRadius:18, padding:'16px', display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow:t.shadow }}>
+              <div key={b._id} style={{ background:t.card, border:`1px solid ${t.border}`, borderRadius:18, padding:'16px', display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow:t.shadow }}>
                 <div>
                   <p style={{ fontSize:15, fontWeight:700, color:t.text, marginBottom:4 }}>{b.topic}</p>
-                  <p style={{ fontSize:11, color:t.textMuted }}>Host: {b.hostName} • {b.playerCount || 1} online</p>
+                  <p style={{ fontSize:11, color:t.textMuted }}>Host: {b.hostName} • {b.players?.length || 1} online</p>
                 </div>
                 <button 
                   onClick={() => handleJoin(b)}
@@ -163,6 +131,7 @@ export default function BattleHub() {
               </div>
             ))}
           </div>
+
         ) : (
           <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
             <div style={{ background:t.card, border:`1px solid ${t.border}`, borderRadius:24, padding:32, textAlign:'center', boxShadow:t.shadow }}>
