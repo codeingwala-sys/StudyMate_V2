@@ -36,13 +36,14 @@ const Section = ({ title, children, T, isDark }) => (
 
 export default function Settings() {
   const navigate = useNavigate()
-  const { refreshStreak, notes, tasks, timerSessions, testResults } = useAppStore()
+  const { user, setUser, refreshStreak, notes, tasks, timerSessions, testResults, syncing } = useAppStore()
   const savedUser = JSON.parse(localStorage.getItem('studymate_user') || '{}')
-  const [localName,    setLocalName]   = useState(savedUser.name || 'Student')
+  const [localName,    setLocalName]   = useState(user.name || savedUser.name || 'Student')
   const [theme,        setTheme]       = useState(getTheme)
   const [notifPerm,    setNotifPerm]   = useState(getNotificationPermission)
   const [showClear,    setShowClear]   = useState(false)
   const [exportDone,   setExportDone]  = useState(false)
+  const [syncStatus,   setSyncStatus]  = useState('idle') // idle, loading, success, error
   const notifsOn = notifPerm === 'granted'
   const isDark = theme === 'dark'
 
@@ -50,21 +51,17 @@ export default function Settings() {
 
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
 
-  const saveName = () => {
+  const saveName = async () => {
+    setUser({ ...user, name: localName })
     localStorage.setItem('studymate_user', JSON.stringify({ ...savedUser, name: localName }))
+    // Also push to cloud immediately
+    const { upsertPreferences } = await import('../services/supabase')
+    upsertPreferences({ name: localName }).catch(() => {})
   }
 
   const handleSignOut = async () => {
-    // Clear dynamic study data to prevent account overlapping
-    useAppStore.setState({ 
-      timerSessions: [], 
-      testResults: [], 
-      notes: [], 
-      tasks: [], 
-      streak: 0, 
-      todayStudied: 0,
-      lastSyncedAt: null 
-    })
+    // Full clear of dynamic study data including tombstones to prevent account overlapping
+    useAppStore.getState().clearStudyData(true)
     
     await signOut().catch(() => {
       localStorage.removeItem('studymate_user')
@@ -73,7 +70,7 @@ export default function Settings() {
   }
 
   const handleClearData = () => {
-    useAppStore.setState({ timerSessions:[], testResults:[], notes:[], streak:0, todayStudied:0 })
+    useAppStore.getState().clearStudyData(false)
     refreshStreak()
     setShowClear(false)
   }
@@ -206,12 +203,12 @@ export default function Settings() {
             
             <div style={{ marginTop:20, padding:16, background:T.inputBg, borderRadius:16, border:`1px solid ${T.border}` }}>
               <h4 style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:4 }}>Cloud Troubleshooting</h4>
-              <p style={{ fontSize:11, color:T.muted, marginBottom:12 }}>If you see 403 errors or sync fails, try repairing your session. This will log you out and refresh your connection.</p>
+              <p style={{ fontSize:11, color:T.muted, marginBottom:12 }}>If your notes aren't syncing or you see "403" errors, try repairing your connection. This will refresh your session safely.</p>
               <button 
-                onClick={hardResetSession} 
+                onClick={handleHardReset} 
                 style={{ width:'100%', padding:'10px', borderRadius:10, background:T.bg2, border:`1px solid ${T.border}`, color:T.text, fontSize:11, fontWeight:700, cursor:'pointer' }}
               >
-                Repair Cloud Connection
+                Repair Cloud Sync
               </button>
             </div>
           </div>
@@ -249,6 +246,75 @@ export default function Settings() {
           </div>
         </Section>
 
+        {/* ── TIMER & GOALS ── */}
+        <Section T={T} isDark={isDark} title="Timer & Goals">
+          <div style={{ padding:'16px 18px' }}>
+            <div style={{ marginBottom:20 }}>
+              <p style={{ fontSize:12, color:T.muted, marginBottom:10 }}>Custom study durations and daily target (in minutes)</p>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:10 }}>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontSize:10, fontWeight:700, color:T.label, marginBottom:6, textTransform:'uppercase' }}>Study Session</p>
+                  <input 
+                    type="number" 
+                    value={useAppStore.getState().settings.pomoDuration} 
+                    onChange={e => useAppStore.getState().updateSettings({ pomoDuration: parseInt(e.target.value) || 25 })}
+                    style={{ ...inp, width: '100%' }} 
+                  />
+                </div>
+                <div style={{ flex:1 }}>
+                  <p style={{ fontSize:10, fontWeight:700, color:T.label, marginBottom:6, textTransform:'uppercase' }}>Daily Goal</p>
+                  <input 
+                    type="number" 
+                    value={useAppStore.getState().goals.dailyMins} 
+                    onChange={e => useAppStore.getState().updateGoals({ dailyMins: parseInt(e.target.value) || 60 })}
+                    style={{ ...inp, width: '100%' }} 
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:10 }}>
+              <div style={{ flex:1 }}>
+                <p style={{ fontSize:10, fontWeight:700, color:T.label, marginBottom:6, textTransform:'uppercase' }}>Short Break</p>
+                <input 
+                  type="number" 
+                  value={useAppStore.getState().settings.shortBreak} 
+                  onChange={e => useAppStore.getState().updateSettings({ shortBreak: parseInt(e.target.value) || 5 })}
+                  style={{ ...inp, width: '100%' }} 
+                />
+              </div>
+              <div style={{ flex:1 }}>
+                <p style={{ fontSize:10, fontWeight:700, color:T.label, marginBottom:6, textTransform:'uppercase' }}>Long Break</p>
+                <input 
+                  type="number" 
+                  value={useAppStore.getState().settings.longBreak} 
+                  onChange={e => useAppStore.getState().updateSettings({ longBreak: parseInt(e.target.value) || 15 })}
+                  style={{ ...inp, width: '100%' }} 
+                />
+              </div>
+            </div>
+            
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+              <h4 style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 4 }}>Streak Repair</h4>
+              <p style={{ fontSize: 11, color: T.muted, marginBottom: 12 }}>
+                Lost your streak? You can restore it up to 2 times per month.
+                <br/>
+                <span style={{ color: T.amber }}>Restores used this month: {(useAppStore.getState().streakRestores || []).filter(d => d.startsWith(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`)).length} / 2</span>
+              </p>
+              <button 
+                onClick={() => {
+                  const success = useAppStore.getState().restoreStreak()
+                  if (success) alert("Streak restored successfully!")
+                  else alert("You have reached the maximum streak restores for this month.")
+                }} 
+                style={{ width:'100%', padding:'10px', borderRadius:10, background:T.amberBg, border:`1px solid ${T.amberBrd}`, color:T.amber, fontSize:12, fontWeight:700, cursor:'pointer' }}
+              >
+                Restore Streak
+              </button>
+            </div>
+          </div>
+        </Section>
+
         {/* ── NOTIFICATIONS ── */}
         <Section T={T} isDark={isDark} title="Notifications">
           <Row T={T} label="Study Reminders" sub="Daily 8pm streak reminder"
@@ -262,7 +328,7 @@ export default function Settings() {
                   else {
                     const p = await requestNotificationPermission()
                     setNotifPerm(p)
-                    if(p==='granted') scheduleStreakReminder(7)
+                    if(p==='granted') scheduleStreakReminder(useAppStore.getState().streak)
                   }
                 }} />
               </div>
@@ -358,22 +424,38 @@ export default function Settings() {
           {/* Sync button */}
           <div style={{ padding:'0 18px 14px' }}>
             <button
+              disabled={syncing || syncStatus === 'success'}
               onClick={async () => {
-                const { syncFromCloud } = useAppStore.getState()
-                await syncFromCloud()
+                setSyncStatus('loading')
+                try {
+                  const { syncFromCloud } = useAppStore.getState()
+                  await syncFromCloud()
+                  setSyncStatus('success')
+                  setTimeout(() => setSyncStatus('idle'), 3000)
+                } catch (e) {
+                  setSyncStatus('error')
+                  setTimeout(() => setSyncStatus('idle'), 3000)
+                }
               }}
               style={{
                 width:'100%', padding:'12px', borderRadius:12,
-                background: T.greenBg,
-                border: `1px solid ${T.greenBrd}`,
-                color: T.green,
-                fontSize:13, fontWeight:700, cursor:'pointer',
+                background: syncStatus === 'success' ? T.greenBg : (syncStatus === 'error' ? T.danger : T.greenBg),
+                border: `1px solid ${syncStatus === 'success' ? T.greenBrd : (syncStatus === 'error' ? T.dangerBrd : T.greenBrd)}`,
+                color: syncStatus === 'error' ? T.dangerTxt : T.green,
+                fontSize:13, fontWeight:700, cursor:(syncing || syncStatus === 'success') ? 'default' : 'pointer',
                 fontFamily:'Inter,sans-serif',
                 display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+                transition: 'all 0.2s'
               }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-              Sync Data Now
+              {syncStatus === 'loading' ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: 'spin 1.2s linear infinite' }}><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              ) : syncStatus === 'success' ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              )}
+              {syncStatus === 'loading' ? 'Syncing...' : syncStatus === 'success' ? 'All Data Synced!' : syncStatus === 'error' ? 'Sync Failed' : 'Sync Data Now'}
             </button>
           </div>
         </Section>
@@ -413,7 +495,7 @@ export default function Settings() {
           )}
 
           <div style={{ padding:'14px 18px', background:T.danger, marginTop:10 }}>
-            <p style={{ fontSize:11, color:T.dangerTxt, marginBottom:10, opacity:0.8 }}>Stuck on an old version? Use Hard Reset to clear all local app cache. Your notes/tasks are safe.</p>
+            <p style={{ fontSize:11, color:T.dangerTxt, marginBottom:10, opacity:0.8 }}>App stuck or updates not showing? Use hard reset to clear all caches. No notes will be lost.</p>
             <button
               onClick={handleHardReset}
               style={{

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import GlobalSearch from './GlobalSearch'
 import { haptic } from '../utils/haptics'
@@ -10,6 +10,20 @@ export default function Home() {
   const [showSearch, setShowSearch] = useState(false)
   const { isDark, t } = useTheme()
   const { streak, todayStudied, tasks, notes, toggleTask } = useAppStore()
+  const [notifPerm, setNotifPerm] = useState('Notification' in window ? Notification.permission : 'unsupported')
+
+  useEffect(() => {
+    if (notifPerm === 'granted') {
+      import('../services/notifications.service').then(m => m.scheduleStreakReminder(streak))
+    }
+  }, [streak, notifPerm])
+
+  const requestPerm = async () => {
+    const m = await import('../services/notifications.service')
+    const res = await m.requestNotificationPermission()
+    setNotifPerm(res)
+    if (res === 'granted') m.scheduleStreakReminder(streak)
+  }
   const saved     = JSON.parse(localStorage.getItem('studymate_user') || '{}')
   const name      = saved.name || 'Student'
   const today     = new Date().toDateString()
@@ -50,6 +64,16 @@ export default function Home() {
           </button>
         </div>
       </div>
+
+      {notifPerm === 'default' && (
+        <div style={{ margin:'10px 20px 0', padding:'12px 14px', background:'rgba(59,130,246,0.1)', border:'1px solid rgba(59,130,246,0.2)', borderRadius:16, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div>
+            <p style={{ fontSize:13, fontWeight:600, color:t.text, fontFamily:'Inter,sans-serif' }}>Enable notifications</p>
+            <p style={{ fontSize:11, color:t.textMuted, fontFamily:'Inter,sans-serif', marginTop:2 }}>Don't lose your study streak!</p>
+          </div>
+          <button onClick={requestPerm} style={{ padding:'6px 12px', borderRadius:10, background:t.blue, border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>Allow</button>
+        </div>
+      )}
 
       {/* STREAK — always dark card, it has its own internal palette */}
       <div style={{ padding:'18px 20px 0' }}>
