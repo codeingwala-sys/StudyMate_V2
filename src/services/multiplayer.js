@@ -2,15 +2,21 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
 
 // ── STUDY BUDDIES ─────────────────────────────────────────────────────────────
-export function useLiveBuddies(user, isActive, durationMins, onEmoji) {
+export function useLiveBuddies(user, isActive, durationMins, onEmoji, roomId = 'lobby') {
   const [buddies, setBuddies] = useState([])
   const channelRef = useRef(null)
+  // FIX 1: Store onEmoji in a ref so broadcast listeners never go stale
+  const onEmojiRef = useRef(onEmoji)
+  useEffect(() => { onEmojiRef.current = onEmoji }, [onEmoji])
+  // FIX 2: Stable anon key — computed once, not on every render
+  const anonKey = useRef(`anon-${Date.now()}`)
+  const myKey = user?.id || anonKey.current
 
   useEffect(() => {
     if (!supabase) return
 
-    const channel = supabase.channel('study-buddies-lobby', {
-      config: { presence: { key: user?.id || `anon-${Date.now()}` } }
+    const channel = supabase.channel(`study-buddies-${roomId}`, {
+      config: { presence: { key: myKey } }
     })
     channelRef.current = channel
 
@@ -19,16 +25,18 @@ export function useLiveBuddies(user, isActive, durationMins, onEmoji) {
         const state = channel.presenceState()
         const parsed = []
         for (const [key, presenceData] of Object.entries(state)) {
-           const info = presenceData[0]
-           if (info && info.status === 'focusing') {
-               parsed.push({
-                 _id: key,
-                 userId: key,
-                 userName: info.userName,
-                 duration: info.duration,
-                 status: info.status
-               })
-           }
+          // FIX 3: Don't include self in the buddies list
+          if (key === myKey) continue
+          const info = presenceData[0]
+          if (info && info.status === 'focusing') {
+            parsed.push({
+              _id: key,
+              userId: key,
+              userName: info.userName,
+              duration: info.duration,
+              status: info.status
+            })
+          }
         }
         setBuddies(parsed)
       })
@@ -41,15 +49,16 @@ export function useLiveBuddies(user, isActive, durationMins, onEmoji) {
           })
         }
       })
-      
+
+    // Use ref so this listener always calls the latest onEmoji prop
     channel.on('broadcast', { event: 'emoji' }, ({ payload }) => {
-      if (onEmoji) onEmoji(payload)
+      if (onEmojiRef.current) onEmojiRef.current(payload)
     })
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [user?.id])
+  }, [myKey, roomId]) // eslint-disable-line
 
   // Updates presence without reconnecting
   useEffect(() => {
@@ -69,7 +78,7 @@ export function useLiveBuddies(user, isActive, durationMins, onEmoji) {
   const sendEmoji = (emoji) => {
     if (channelRef.current?.state === 'joined') {
       channelRef.current.send({ type: 'broadcast', event: 'emoji', payload: { emoji, from: user?.name } }).catch(() => {})
-      if (onEmoji) onEmoji({ emoji, from: user?.name, isSelf: true })
+      if (onEmojiRef.current) onEmojiRef.current({ emoji, from: user?.name, isSelf: true })
     }
   }
 
