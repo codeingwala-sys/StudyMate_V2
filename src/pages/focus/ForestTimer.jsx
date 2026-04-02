@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { showNotification } from '../../services/notifications.service'
+import { showNotification, notifyTimerDone, scheduleTimerDone, cancelTimerDone } from '../../services/notifications.service'
 import { haptic } from '../../utils/haptics'
 import { playTimerStart, playWarning90, playTimerDone, playBreakStart } from '../../services/sound.service'
 import { useAppStore } from '../../app/store'
@@ -68,7 +68,7 @@ function StopwatchFace({ swH, swM, swS }) {
 
 export default function FocusTimer() {
   const navigate  = useNavigate()
-  const { addSession } = useAppStore()
+  const { addSession, settings } = useAppStore()
 
   // ── Canvas + animation refs ──
   const canvasRef   = useRef(null)
@@ -137,14 +137,21 @@ export default function FocusTimer() {
   const longTickRef  = useRef(null)
 
   // ── Per-mode duration refs ──
-  const timerSecRef  = useRef(1500)
-  const shortSecRef  = useRef(300)
-  const longSecRef   = useRef(900)
-  const totalSecRef  = useRef(1500)
+  const timerSecRef  = useRef(settings.pomoDuration * 60)
+  const shortSecRef  = useRef(settings.shortBreak * 60)
+  const longSecRef   = useRef(settings.longBreak * 60)
+  const totalSecRef  = useRef(settings.pomoDuration * 60)
+
   // Track whether 90% warning has already fired for each mode (reset on start/reset)
   const warned90Timer = useRef(false)
   const warned90Short = useRef(false)
   const warned90Long  = useRef(false)
+
+  // Start time references for precise background time tracking
+  const timerStartRef = useRef(null)
+  const shortStartRef = useRef(null)
+  const longStartRef  = useRef(null)
+  const swStartRef    = useRef(null)
 
   // ── Restore persisted state ──
   const _s = (() => { try { return JSON.parse(localStorage.getItem('studymate_timer')||'{}') } catch { return {} } })()
@@ -171,9 +178,9 @@ export default function FocusTimer() {
 
   // ── State ──
   const [mode,          setMode]         = useState(_s.mode     || 'timer')
-  const [timerSec,      setTimerSec]     = useState(_s.timerSec || 1500)
-  const [shortBreakSec, setShortBreakSec]= useState(_s.shortSec || 300)
-  const [longBreakSec,  setLongBreakSec] = useState(_s.longSec  || 900)
+  const [timerSec,      setTimerSec]     = useState(_s.timerSec || settings.pomoDuration * 60)
+  const [shortBreakSec, setShortBreakSec]= useState(_s.shortSec || settings.shortBreak * 60)
+  const [longBreakSec,  setLongBreakSec] = useState(_s.longSec  || settings.longBreak * 60)
   const [timerRunning,  setTimerRunning] = useState(_t.running)
   const [timerElapsed,  setTimerElapsed] = useState(_t.elapsed)
   const [shortRunning,  setShortRunning] = useState(_sh.running)
@@ -234,9 +241,9 @@ export default function FocusTimer() {
         if (s[mk+'Running'] && s[mk+'StartedAt']) {
           const passed = Math.floor((now-s[mk+'StartedAt'])/1000)
           const dur = s[dk]||def
+          // Do NOT call setRun(false) here, so setInterval can catch it and run the completion logic!
           const restored = Math.min((s[mk+'Elapsed']||0)+passed, dur)
-          if (restored >= dur) { setEl(0); setRun(false) }
-          else setEl(restored)
+          setEl(restored)
         }
       })
       if (s.swRunning && s.swStartedAt) {
@@ -462,14 +469,17 @@ export default function FocusTimer() {
   },[])
 
   // ── Per-mode countdown effects — ALL run in parallel ──
-  const makeCountdown = (isRunning, setElFn, elRef, secRef, tickRef, intRef, label) => {
+  const makeCountdown = (isRunning, setElFn, elRef, secRef, tickRef, intRef, label, startRef) => {
     if (isRunning) {
       tickRef.current = Date.now()
+      startRef.current = Date.now() - elRef.current * 1000
+      
       intRef.current = setInterval(() => {
         tickRef.current = Date.now()
         setElFn(e => {
-          const next = e + 1
+          const next = Math.floor((Date.now() - startRef.current) / 1000)
           elRef.current = next
+          
           // 90% warning sound — fires once per session
           const warnedRef = label==='short' ? warned90Short : label==='long' ? warned90Long : warned90Timer
           if (!warnedRef.current && secRef.current > 0 && next / secRef.current >= 0.9) {
@@ -477,12 +487,14 @@ export default function FocusTimer() {
             playWarning90()
           }
           if (next >= secRef.current) {
+            cancelTimerDone(label)
             clearInterval(intRef.current); intRef.current = null
             setTimeout(() => {
               setElFn(0); elRef.current = 0; tickRef.current = null
               setCompleted(cv => cv+1)
               const mins = Math.round(secRef.current/60)
               addSession({ date:new Date().toISOString(), duration:mins, type:'focus' })
+              notifyTimerDone(label, mins) // Centralized notification
               playTimerDone()
               haptic.success()
               // Start repeating alarm if app is in background
@@ -507,13 +519,17 @@ export default function FocusTimer() {
     return () => { clearInterval(intRef.current); intRef.current = null }
   }
 
-  useEffect(() => makeCountdown(timerRunning, setTimerElapsed, timerElRef, timerSecRef, timerTickRef, timerIntRef, 'timer'), [timerRunning]) // eslint-disable-line
-  useEffect(() => makeCountdown(shortRunning, setShortElapsed, shortElRef, shortSecRef, shortTickRef, shortIntRef, 'short'), [shortRunning]) // eslint-disable-line
-  useEffect(() => makeCountdown(longRunning,  setLongElapsed,  longElRef,  longSecRef,  longTickRef,  longIntRef,  'long'),  [longRunning])  // eslint-disable-line
+  useEffect(() => makeCountdown(timerRunning, setTimerElapsed, timerElRef, timerSecRef, timerTickRef, timerIntRef, 'timer', timerStartRef), [timerRunning]) // eslint-disable-line
+  useEffect(() => makeCountdown(shortRunning, setShortElapsed, shortElRef, shortSecRef, shortTickRef, shortIntRef, 'short', shortStartRef), [shortRunning]) // eslint-disable-line
+  useEffect(() => makeCountdown(longRunning,  setLongElapsed,  longElRef,  longSecRef,  longTickRef,  longIntRef,  'long', longStartRef),  [longRunning])  // eslint-disable-line
 
   useEffect(() => {
     if (swRunning) {
-      swIntRef.current = setInterval(() => { setSwElapsed(e => e+1); swElRef.current++ }, 1000)
+      swStartRef.current = Date.now() - swElRef.current * 1000
+      swIntRef.current = setInterval(() => { 
+        const next = Math.floor((Date.now() - swStartRef.current) / 1000)
+        setSwElapsed(next); swElRef.current = next 
+      }, 1000)
     } else {
       clearInterval(swIntRef.current); swIntRef.current = null
     }
@@ -531,9 +547,9 @@ export default function FocusTimer() {
   // Reset only the current displayed mode
   const reset = () => {
     haptic.light()
-    if (mode==='timer')     { clearInterval(timerIntRef.current); timerIntRef.current=null; setTimerRunning(false); setTimerElapsed(0); timerElRef.current=0; timerTickRef.current=null; warned90Timer.current=false; stopAlarm() }
-    if (mode==='short')     { clearInterval(shortIntRef.current); shortIntRef.current=null; setShortRunning(false); setShortElapsed(0); shortElRef.current=0; shortTickRef.current=null; warned90Short.current=false }
-    if (mode==='long')      { clearInterval(longIntRef.current);  longIntRef.current=null;  setLongRunning(false);  setLongElapsed(0);  longElRef.current=0;  longTickRef.current=null;  warned90Long.current=false  }
+    if (mode==='timer')     { clearInterval(timerIntRef.current); timerIntRef.current=null; setTimerRunning(false); setTimerElapsed(0); timerElRef.current=0; timerTickRef.current=null; warned90Timer.current=false; stopAlarm(); cancelTimerDone('timer') }
+    if (mode==='short')     { clearInterval(shortIntRef.current); shortIntRef.current=null; setShortRunning(false); setShortElapsed(0); shortElRef.current=0; shortTickRef.current=null; warned90Short.current=false; cancelTimerDone('short') }
+    if (mode==='long')      { clearInterval(longIntRef.current);  longIntRef.current=null;  setLongRunning(false);  setLongElapsed(0);  longElRef.current=0;  longTickRef.current=null;  warned90Long.current=false; cancelTimerDone('long')  }
     if (mode==='stopwatch') { clearInterval(swIntRef.current);    swIntRef.current=null;    setSwRunning(false);    setSwElapsed(0);    swElRef.current=0 }
   }
 
@@ -548,15 +564,18 @@ export default function FocusTimer() {
   const toggleRunning = () => {
     haptic.medium()
     if (mode==='timer') {
-      if (!timerRunning) { playTimerStart(); warned90Timer.current = false }
+      if (!timerRunning) { playTimerStart(); warned90Timer.current = false; scheduleTimerDone('timer', Date.now() + (timerSec - timerElapsed) * 1000) }
+      else { cancelTimerDone('timer'); stopAlarm() }
       setTimerRunning(r => !r)
     }
     if (mode==='short') {
-      if (!shortRunning) { playBreakStart(); warned90Short.current = false }
+      if (!shortRunning) { playBreakStart(); warned90Short.current = false; scheduleTimerDone('short', Date.now() + (shortBreakSec - shortElapsed) * 1000) }
+      else { cancelTimerDone('short'); stopAlarm() }
       setShortRunning(r => !r)
     }
     if (mode==='long') {
-      if (!longRunning) { playBreakStart(); warned90Long.current = false }
+      if (!longRunning) { playBreakStart(); warned90Long.current = false; scheduleTimerDone('long', Date.now() + (longBreakSec - longElapsed) * 1000) }
+      else { cancelTimerDone('long'); stopAlarm() }
       setLongRunning(r => !r)
     }
     if (mode==='stopwatch') setSwRunning(r => !r)

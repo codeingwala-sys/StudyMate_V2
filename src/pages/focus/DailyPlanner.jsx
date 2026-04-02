@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { useTheme } from '../../app/useTheme'
 import { haptic } from '../../utils/haptics'
 import { useAppStore } from '../../app/store'
+import { scheduleTaskReminder, cancelTaskReminder } from '../../services/notifications.service'
 import Header from '../../components/layout/Header'
 
 const PRIORITIES = ['High', 'Medium', 'Low']
@@ -133,6 +134,10 @@ export default function DailyPlanner() {
 
   const handleAdd = useCallback((formData) => {
     addTask(formData)
+    // If task has a time, schedule a reminder
+    if (formData.time) {
+      scheduleTaskReminder(formData)
+    }
     setShowAdd(false)
   }, [addTask])
 
@@ -266,7 +271,7 @@ export default function DailyPlanner() {
               </div>
               {task.notes&&<p style={{ fontSize:12,color:t.textMuted,fontFamily:'Inter,sans-serif',marginTop:4,lineHeight:1.4 }}>{task.notes}</p>}
             </div>
-            <button onClick={()=>deleteTask(task.id)} style={{ background:'none',border:'none',cursor:'pointer',color:t.textFaint,fontSize:14,padding:2,flexShrink:0 }}>✕</button>
+            <button onClick={()=>{ cancelTaskReminder(task.id); deleteTask(task.id) }} style={{ background:'none',border:'none',cursor:'pointer',color:t.textFaint,fontSize:14,padding:2,flexShrink:0 }}>✕</button>
           </div>
         ))}
       </div>
