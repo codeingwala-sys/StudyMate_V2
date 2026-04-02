@@ -587,6 +587,8 @@ function DesktopNoteEditor({ t, isDark, noteId }) {
       const newId = String(Date.now())
       noteIdRef.current = newId
       addNoteRef.current({ ...noteData, id: newId, createdAt: new Date().toISOString() })
+      // Navigate to the new ID so refresh works correctly
+      nav(`/learn/notes/${newId}`, { replace: true })
     }
     setSavedDisplay(`Saved ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`)
     if (noteIdRef.current && content.trim().length > 30) {
@@ -852,8 +854,8 @@ function DesktopNoteEditor({ t, isDark, noteId }) {
         )}
 
         {/* Toolbar — full feature parity with mobile */}
-        <div style={{ flexShrink: 0, borderBottom: `1px solid ${t.border}`, overflowX: 'auto', background: t.sidebar || t.bg2 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '6px 16px', minWidth: 'max-content' }}>
+        <div style={{ flexShrink: 0, borderBottom: `1px solid ${t.border}`, overflowX: 'auto', background: t.sidebar || t.bg2, width: '100%' }} className="sm-no-scrollbar">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '6px 16px', width: 'max-content' }}>
             <TB ch="B" tip="Bold" active={selectionState.bold} onPress={() => exec('bold')} sty={{ fontWeight: 900 }} />
             <TB ch="I" tip="Italic" active={selectionState.italic} onPress={() => exec('italic')} sty={{ fontStyle: 'italic' }} />
             <TB ch="U" tip="Underline" active={selectionState.underline} onPress={() => exec('underline')} sty={{ textDecoration: 'underline' }} />
@@ -1002,8 +1004,8 @@ function DesktopNoteEditor({ t, isDark, noteId }) {
         )}
 
         {/* AI bar */}
-        <div style={{ borderTop: `1px solid ${t.border}`, padding: '8px 16px', flexShrink: 0, background: t.panel || t.bg }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ borderTop: `1px solid ${t.border}`, padding: '10px 16px', flexShrink: 0, background: t.panel || t.bg, width: '100%', overflowX: 'auto' }} className="sm-no-scrollbar">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 'max-content', minWidth: '100%' }}>
             <button onClick={voiceReading ? stopVoice : startVoiceRead} style={{ padding: '6px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: voiceReading ? gr('rgba(248,113,113,0.8)', 'rgba(239,68,68,0.55)') : t.inputBg, border: 'none', color: voiceReading ? '#fff' : t.textMuted, fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /></svg>
               {voiceReading ? 'Stop' : 'Read'}
@@ -1458,8 +1460,8 @@ export default function DesktopLayout({ children }) {
   const getPage = () => {
     if (path === '/') return <DesktopHome t={t} isDark={isDark} />
     if (path === '/learn/notes') return <DesktopNotesList t={t} isDark={isDark} />
-    if (path === '/learn/notes/new') return <DesktopNoteEditor t={t} isDark={isDark} noteId="new" />
-    if (noteId) return <DesktopNoteEditor t={t} isDark={isDark} noteId={noteId} />
+    if (path === '/learn/notes/new') return <DesktopNoteEditor key="new" t={t} isDark={isDark} noteId="new" />
+    if (noteId) return <DesktopNoteEditor key={noteId} t={t} isDark={isDark} noteId={noteId} />
     if (path === '/learn') return <DesktopLearn t={t} isDark={isDark} />
     if (path === '/practice') return <DesktopPractice t={t} isDark={isDark} />
     if (path === '/focus') return <DesktopFocus t={t} isDark={isDark} />
