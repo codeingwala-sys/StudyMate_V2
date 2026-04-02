@@ -8,17 +8,31 @@ export default function PWAInstallPrompt() {
   const [show, setShow] = useState(false)
 
   useEffect(() => {
+    let tId;
+    const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches
+    if (isStandalone) return
+
     const handler = (e) => {
       e.preventDefault()
       setDeferredPrompt(e)
-      // Check if already installed
-      if (window.matchMedia('(display-mode: standalone)').matches) return
+      if (window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches) return
       // Show prompt after 10 seconds of usage
-      setTimeout(() => setShow(true), 10000)
+      tId = setTimeout(() => setShow(true), 10000)
+    }
+
+    const installHandler = () => {
+      setShow(false)
+      setDeferredPrompt(null)
     }
 
     window.addEventListener('beforeinstallprompt', handler)
-    return () => window.removeEventListener('beforeinstallprompt', handler)
+    window.addEventListener('appinstalled', installHandler)
+    
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler)
+      window.removeEventListener('appinstalled', installHandler)
+      if (tId) clearTimeout(tId)
+    }
   }, [])
 
   const handleInstall = async () => {
