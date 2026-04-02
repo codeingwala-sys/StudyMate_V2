@@ -126,7 +126,7 @@ export default function Settings() {
     try {
       const allData = {
         exportedAt: new Date().toISOString(),
-        version:    '1.3.0',
+        version:    '1.3.1',
         user:       savedUser,
         notes,
         tasks,
@@ -467,7 +467,7 @@ export default function Settings() {
               <div style={{ width:46,height:46,borderRadius:14,background:isDark?'rgba(96,165,250,0.1)':'rgba(37,99,235,0.08)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,color:isDark?'#60a5fa':'#2563eb' }}>✦</div>
               <div>
                 <p style={{ fontSize:16,fontWeight:700,color:T.text,fontFamily:'Inter,sans-serif' }}>StudyMate</p>
-                <p style={{ fontSize:12,color:T.muted,fontFamily:'Inter,sans-serif',marginTop:2 }}>Version 1.3.0 · AI-powered</p>
+                <p style={{ fontSize:12,color:T.muted,fontFamily:'Inter,sans-serif',marginTop:2 }}>Version 1.3.1 · AI-powered</p>
               </div>
             </div>
             <p style={{ fontSize:13,color:T.muted,fontFamily:'Inter,sans-serif',lineHeight:1.6 }}>
