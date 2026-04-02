@@ -302,17 +302,28 @@ export default function ProgressHub() {
           <p style={{ fontSize:11,color:t.red,fontWeight:700,fontFamily:'Inter,sans-serif' }}>{notes.length < 5 ? 'High Gap' : 'On Track'}</p>
         </div>
         
-        {/* Placeholder for Syllabus-based Heatmap */}
+        {/* Dynamic Syllabus-based Heatmap */}
         <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-          {['Organic Chem', 'Redox', 'Thermodynamics', 'Atomic Theory', 'Kinetic Theory'].map((topic, i) => {
-            const hasNotes = i % 2 === 0
-            return (
-              <div key={topic} style={{ padding:'8px 12px', borderRadius:12, background:hasNotes ? t.teal + '15' : t.red + '10', border:`1px solid ${hasNotes ? t.teal + '30' : t.red + '30'}`, display:'flex', flexDirection:'column', gap:4, flex:1, minWidth:100 }}>
-                <span style={{ fontSize:12, fontWeight:700, color:hasNotes ? t.teal : t.red }}>{topic}</span>
-                <span style={{ fontSize:10, color:t.textMuted }}>{hasNotes ? 'Covered' : 'Missing Topic'}</span>
-              </div>
-            )
-          })}
+          {(() => {
+            const allTopics = [...new Set([
+              ...notes.map(n => n.tags?.[0]).filter(Boolean),
+              ...testResults.map(r => r.subject).filter(Boolean)
+            ])]
+            if (allTopics.length === 0) allTopics.push('Start studying to see coverage')
+            
+            return allTopics.slice(0, 10).map((topic) => {
+              const noteCount = notes.filter(n => n.tags?.[0] === topic).length
+              const testCount = testResults.filter(r => r.subject === topic).length
+              // Considered covered if they have a note for it, or have practiced it lots
+              const isCovered = topic !== 'Start studying to see coverage' && (noteCount > 0 || testCount > 1)
+              return (
+                <div key={topic} style={{ padding:'8px 12px', borderRadius:12, background:isCovered ? t.teal + '15' : t.red + '10', border:`1px solid ${isCovered ? t.teal + '30' : t.red + '30'}`, display:'flex', flexDirection:'column', gap:4, flex:1, minWidth:100 }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:isCovered ? t.teal : t.red }}>{topic}</span>
+                  <span style={{ fontSize:10, color:t.textMuted }}>{isCovered ? 'Covered' : 'Missing Notes'}</span>
+                </div>
+              )
+            })
+          })()}
         </div>
         <p style={{ fontSize:10, color:t.textMuted, marginTop:12, fontStyle:'italic' }}>Comparing notes vs. B.Tech Semester 4 Syllabus</p>
       </div>
