@@ -23,21 +23,26 @@ if (!document.getElementById(IMG_STYLE_ID)) {
     [contenteditable] img[data-sm-img] {
       cursor: pointer !important; border-radius: 10px;
       max-width: 100%; height: auto !important; display: block;
+      -webkit-user-drag: none; user-select: none;
     }
     [contenteditable] img[data-sm-img].sm-selected {
       outline: 2.5px solid #60a5fa !important; outline-offset: 2px;
       box-shadow: 0 0 0 4px rgba(96,165,250,0.15);
     }
-    [contenteditable] span[data-sm-wrap] { display: block; line-height: 0; font-size: 0; }
-    [contenteditable] span[data-sm-wrap="left"]  { float: left;  margin-right: 12px; margin-bottom: 8px; }
-    [contenteditable] span[data-sm-wrap="right"] { float: right; margin-left:  12px; margin-bottom: 8px; }
-    [contenteditable] span[data-sm-wrap="none"]  { float: none;  display: block; margin: 10px 0; }
+    [contenteditable] span[data-sm-wrap] { display: block; line-height: 0; font-size: 0; transition: transform 0.2s cubic-bezier(0.2,0,0,1), margin 0.2s ease, float 0.2s ease; }
+    [contenteditable] span[data-sm-wrap="left"]  { float: left;  margin-right: 14px; margin-bottom: 8px; margin-top: 4px; clear: none; }
+    [contenteditable] span[data-sm-wrap="right"] { float: right; margin-left:  14px; margin-bottom: 8px; margin-top: 4px; clear: none; }
+    [contenteditable] span[data-sm-wrap="center"] { float: none; display: flex; justify-content: center; margin: 12px 0; clear: both; }
+    [contenteditable] span[data-sm-wrap="none"]  { float: none;  display: block; margin: 12px 0; clear: both; }
+
+    .sm-no-scrollbar::-webkit-scrollbar { display: none; }
+    .sm-no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   `
   document.head.appendChild(s)
 }
 
 // ── ImageControls ─────────────────────────────────────────────────────────────
-function ImageControls({ imgEl, editorEl, onClose, onDelete }) {
+function ImageControls({ imgEl, editorEl, onClose, onDelete, onSave }) {
   const [rect, setRect] = useState(null)
   const [wrap, setWrap] = useState(() => imgEl.closest('[data-sm-wrap]')?.dataset.smWrap || 'none')
   const [isDragging, setIsDragging] = useState(false)
@@ -97,11 +102,47 @@ function ImageControls({ imgEl, editorEl, onClose, onDelete }) {
     const wrapper = getWrapper(); if (!wrapper) return
     wrapper.dataset.smWrap = mode
     setWrap(mode)
-    if (mode === 'left') wrapper.style.cssText = 'float:left;margin-right:14px;margin-bottom:8px;margin-left:0;margin-top:4px;display:block;line-height:0;font-size:0;'
-    else if (mode === 'right') wrapper.style.cssText = 'float:right;margin-left:14px;margin-bottom:8px;margin-right:0;margin-top:4px;display:block;line-height:0;font-size:0;'
-    else wrapper.style.cssText = 'float:none;display:block;margin:10px 0;line-height:0;font-size:0;clear:both;'
+    if (mode === 'left') wrapper.style.cssText = 'float:left;margin-right:14px;margin-bottom:8px;margin-left:0;margin-top:4px;display:block;line-height:0;font-size:0;clear:none;'
+    else if (mode === 'right') wrapper.style.cssText = 'float:right;margin-left:14px;margin-bottom:8px;margin-right:0;margin-top:4px;display:block;line-height:0;font-size:0;clear:none;'
+    else if (mode === 'center') wrapper.style.cssText = 'float:none;display:flex;justify-content:center;margin:12px 0;line-height:0;font-size:0;clear:both;'
+    else wrapper.style.cssText = 'float:none;display:block;margin:12px 0;line-height:0;font-size:0;clear:both;'
     requestAnimationFrame(measure)
-  }, [getWrapper, measure])
+    if (onSave) onSave()
+  }, [getWrapper, measure, onSave])
+
+  const moveNode = useCallback((dir) => {
+    const w = getWrapper(); if (!w) return
+    
+    // Animate moving
+    w.style.transform = dir === 'up' ? 'translateY(-20px)' : 'translateY(20px)'
+    
+    setTimeout(() => {
+      w.style.transition = 'none'
+      if (dir === 'up' && w.previousSibling) {
+        w.parentNode.insertBefore(w, w.previousSibling)
+      } else if (dir === 'down' && w.nextSibling) {
+        if (w.nextSibling.nextSibling) w.parentNode.insertBefore(w, w.nextSibling.nextSibling)
+        else w.parentNode.appendChild(w)
+      }
+      w.style.transform = 'translateY(0)'
+      requestAnimationFrame(() => {
+        w.style.transition = 'transform 0.2s cubic-bezier(0.2,0,0,1), margin 0.2s ease, float 0.2s ease'
+        requestAnimationFrame(measure)
+        if (onSave) onSave()
+      })
+    }, 150)
+  }, [getWrapper, measure, onSave])
+
+  // Keyboard shortcut for image Up/Down
+  useEffect(() => {
+    if (isDragging) return
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowUp') { e.preventDefault(); moveNode('up') }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown') { e.preventDefault(); moveNode('down') }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [isDragging, moveNode])
 
   const onResizeDown = useCallback((e, corner) => {
     e.preventDefault(); e.stopPropagation()
@@ -199,7 +240,10 @@ function ImageControls({ imgEl, editorEl, onClose, onDelete }) {
       if (d.pendingNode && editor.contains(d.pendingNode)) editor.insertBefore(w, d.pendingNode)
       else if (!d.pendingNode) editor.appendChild(w)
       w.style.marginTop = '4px'
-      requestAnimationFrame(() => requestAnimationFrame(measure))
+      requestAnimationFrame(() => {
+        requestAnimationFrame(measure)
+        if (onSave) onSave()
+      })
     }
     handleRef.current?.addEventListener('pointermove', onMove)
     handleRef.current?.addEventListener('pointerup', onUp)
@@ -338,7 +382,7 @@ export default function NoteEditor() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { notes, addNote, updateNote } = useAppStore()
-  const existing = id ? notes.find(n => n.id === Number(id)) : null
+  const existing = id ? notes.find(n => String(n.id) === String(id)) : null
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const editorRef = useRef(null)
@@ -428,13 +472,25 @@ export default function NoteEditor() {
     document.addEventListener('mouseup', handler)
     document.addEventListener('keyup', handler)
     document.addEventListener('click', handler)
+
+    const kbHandler = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'b') { e.preventDefault(); exec('bold') }
+        if (e.key === 'i') { e.preventDefault(); exec('italic') }
+        if (e.key === 'u') { e.preventDefault(); exec('underline') }
+        if (e.key === 's') { e.preventDefault(); saveNow() }
+      }
+    }
+    document.addEventListener('keydown', kbHandler)
+
     return () => {
       document.removeEventListener('selectionchange', handler)
       document.removeEventListener('mouseup', handler)
       document.removeEventListener('keyup', handler)
       document.removeEventListener('click', handler)
+      document.removeEventListener('keydown', kbHandler)
     }
-  }, [])
+  }, [saveNow])
 
   // Sync refs
   titleRef.current = title
@@ -535,7 +591,7 @@ export default function NoteEditor() {
   // ── Save (defined first — needed by insertDrawingDataUrl below) ──────────
   const saveNow = useCallback(() => {
     haptic.light()
-    const t2 = titleRef.current?.trim(); if (!t2) return
+    const t2 = titleRef.current?.trim() || 'Untitled Note'
     const el = editorRef.current
     const html = el ? (el.innerHTML || '') : ''
     const content = el ? (el.textContent || '') : ''
@@ -598,7 +654,7 @@ export default function NoteEditor() {
     off.height = maxY - minY
     const offCtx = off.getContext('2d')
     offCtx.drawImage(canvas, minX, minY, off.width, off.height, 0, 0, off.width, off.height)
-    
+
     // Scale down if it's high-DPI to save space (sync performance)
     let finalDataUrl
     if (dpr > 1) {
@@ -611,7 +667,7 @@ export default function NoteEditor() {
     } else {
       finalDataUrl = off.toDataURL('image/png')
     }
-    
+
     insertDrawingDataUrl(finalDataUrl)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     penDirty.current = false; setPenMode(false)
@@ -856,8 +912,8 @@ export default function NoteEditor() {
       )}
 
       {/* TOOLBAR */}
-      <div style={{ flexShrink: 0, borderBottom: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto', background: 'rgba(0,0,0,0.85)', position: 'relative', zIndex: 2 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '6px 10px', minWidth: 'max-content' }}>
+      <div className="sm-no-scrollbar" style={{ flexShrink: 0, width: '100%', borderBottom: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto', background: 'rgba(0,0,0,0.85)', position: 'relative', zIndex: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '6px 10px', width: 'max-content' }}>
           <TB ch="B" tip="Bold" active={selectionState.bold} onPress={() => exec('bold')} sty={{ fontWeight: 900 }} />
           <TB ch="I" tip="Italic" active={selectionState.italic} onPress={() => exec('italic')} sty={{ fontStyle: 'italic' }} />
           <TB ch="U" tip="Underline" active={selectionState.underline} onPress={() => exec('underline')} sty={{ textDecoration: 'underline' }} />
@@ -987,6 +1043,7 @@ export default function NoteEditor() {
         <ImageControls imgEl={selectedImg} editorEl={editorRef.current}
           onClose={() => { if (selectedImg) selectedImg.classList.remove('sm-selected'); setSelectedImg(null) }}
           onDelete={() => { setSelectedImg(null); scheduleSave() }}
+          onSave={saveNow}
         />
       )}
 

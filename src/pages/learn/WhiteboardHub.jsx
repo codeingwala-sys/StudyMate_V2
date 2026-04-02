@@ -13,13 +13,15 @@ export default function WhiteboardHub() {
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: t.bg }}>
       <Header title="Collaborative Whiteboard" subtitle="Mind-Sync" back />
       
-      <div style={{ flex: 1, position: 'relative' }}>
-        <Tldraw 
-          inferDarkMode={isDark}
-          persistenceKey={`studymate-whiteboard-${userId}`}
-        />
+      <div style={{ flex: 1, position: 'relative', paddingBottom: 80 }}>
+        <div style={{ position: 'absolute', inset: '0 0 80px 0' }}>
+          <Tldraw 
+            inferDarkMode={isDark}
+            persistenceKey={`studymate-whiteboard-${userId}`}
+          />
+        </div>
         
-        <div style={{ position: 'absolute', bottom: 20, right: 20, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ position: 'absolute', bottom: 90, right: 20, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ padding: '8px 16px', borderRadius: 20, background: t.card, border: `1px solid ${t.border}`, fontSize: 11, color: t.textSec, boxShadow: t.shadow }}>
             ● Local Save Active
           </div>
