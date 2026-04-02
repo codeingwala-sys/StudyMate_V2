@@ -442,6 +442,32 @@ export default function NoteEditor() {
     alignLeft: false, alignCenter: false, alignRight: false
   })
 
+  // ── Save (defined first — needed by keyboard shortcuts & selection listeners) ──────────
+  const saveNow = useCallback(() => {
+    haptic.light()
+    const t2 = titleRef.current?.trim() || 'Untitled Note'
+    const el = editorRef.current
+    const html = el ? (el.innerHTML || '') : ''
+    const content = el ? (el.textContent || '') : ''
+    if (!noteIdRef.current && !html.trim()) return
+    const noteData = { title: t2, content: content.trim(), html, tags: categoryRef.current ? [categoryRef.current] : [], checklists: checklistsRef.current }
+    if (noteIdRef.current) {
+      updateNoteRef.current(noteIdRef.current, noteData)
+    } else {
+      const newId = Date.now(); noteIdRef.current = newId
+      addNoteRef.current({ ...noteData, id: newId, createdAt: new Date().toISOString() })
+      // Navigate to the new ID so refresh works correctly
+      navigate(`/learn/notes/${newId}`, { replace: true })
+    }
+    setSavedDisplay(`Saved ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`)
+    if (noteIdRef.current && content.trim().length > 30) {
+      const noteForCache = { id: noteIdRef.current, title: t2, content: content.trim() }
+      setTimeout(() => backgroundGenerateForNote(noteForCache, aiService), 500)
+    }
+  }, [])
+
+  const scheduleSave = useCallback(() => { clearTimeout(autoSaveRef.current); autoSaveRef.current = setTimeout(saveNow, 2000) }, [saveNow])
+
   // Sync selection state for toolbar
   useEffect(() => {
     const handler = () => {
@@ -588,29 +614,6 @@ export default function NoteEditor() {
     applyPenStyle(ctxRef.current)
   }, [applyPenStyle])
 
-  // ── Save (defined first — needed by insertDrawingDataUrl below) ──────────
-  const saveNow = useCallback(() => {
-    haptic.light()
-    const t2 = titleRef.current?.trim() || 'Untitled Note'
-    const el = editorRef.current
-    const html = el ? (el.innerHTML || '') : ''
-    const content = el ? (el.textContent || '') : ''
-    if (!noteIdRef.current && !html.trim()) return
-    const noteData = { title: t2, content: content.trim(), html, tags: categoryRef.current ? [categoryRef.current] : [], checklists: checklistsRef.current }
-    if (noteIdRef.current) {
-      updateNoteRef.current(noteIdRef.current, noteData)
-    } else {
-      const newId = Date.now(); noteIdRef.current = newId
-      addNoteRef.current({ ...noteData, id: newId, createdAt: new Date().toISOString() })
-    }
-    setSavedDisplay(`Saved ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`)
-    if (noteIdRef.current && content.trim().length > 30) {
-      const noteForCache = { id: noteIdRef.current, title: t2, content: content.trim() }
-      setTimeout(() => backgroundGenerateForNote(noteForCache, aiService), 500)
-    }
-  }, [])
-
-  const scheduleSave = useCallback(() => { clearTimeout(autoSaveRef.current); autoSaveRef.current = setTimeout(saveNow, 2000) }, [saveNow])
 
   // ── Pen drawing helpers ───────────────────────────────────────────────────
   // insertDrawingDataUrl defined before commitDrawing so commitDrawing's closure is never stale
@@ -1063,20 +1066,20 @@ export default function NoteEditor() {
       )}
 
       {/* AI BAR */}
-      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '10px 12px', flexShrink: 0, background: '#000', position: 'relative', zIndex: 3 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '10px 12px', flexShrink: 0, background: '#000', position: 'relative', zIndex: 3, overflowX: 'auto' }} className="sm-no-scrollbar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: 'max-content' }}>
           <button onClick={voiceReading ? stopVoice : startVoiceRead} style={{ padding: '7px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: voiceReading ? 'linear-gradient(135deg,rgba(248,113,113,0.8),rgba(239,68,68,0.55))' : 'rgba(255,255,255,0.07)', border: 'none', color: voiceReading ? '#fff' : 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, transition: 'all 0.2s' }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /></svg>
             {voiceReading ? 'Stop' : 'Read'}
           </button>
-          <div style={{ flex: 1 }} />
+          <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.1)', flexShrink: 0, margin: '0 4px' }} />
           <button onClick={() => {
             shareContent({
               title: 'Study Note Shared',
               text: `Check out this study note on StudyMate AI!`,
               url: `${window.location.origin}/share/${id || noteIdRef.current}`
             });
-          }} style={{ padding: '7px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: 'rgba(255,255,255,0.07)', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+          }} style={{ padding: '7px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: 'rgba(255,255,255,0.07)', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" /></svg>
             Share
           </button>
@@ -1085,7 +1088,7 @@ export default function NoteEditor() {
             { mode: 'questions', label: 'Questions', grad: 'linear-gradient(135deg,rgba(167,139,250,0.8),rgba(139,92,246,0.55))' },
             { mode: 'flashcards', label: 'Flashcards', grad: 'linear-gradient(135deg,rgba(96,165,250,0.8),rgba(59,130,246,0.55))' },
           ].map(({ mode, label, grad }) => (
-            <button key={mode} onClick={() => runAI(mode)} style={{ padding: '7px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: aiPanel === mode ? grad : 'rgba(255,255,255,0.07)', border: 'none', color: aiPanel === mode ? '#fff' : 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 600 }}>{label}</button>
+            <button key={mode} onClick={() => runAI(mode)} style={{ padding: '7px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: aiPanel === mode ? grad : 'rgba(255,255,255,0.07)', border: 'none', color: aiPanel === mode ? '#fff' : 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>{label}</button>
           ))}
         </div>
       </div>
