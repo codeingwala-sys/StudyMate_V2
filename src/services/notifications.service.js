@@ -129,6 +129,29 @@ export function notifyTimerDone(mode, minutes) {
   showNotification(m.title, m.body, { tag: 'timer-done', renotify: true })
 }
 
+export async function scheduleTimerDone(mode, fireAtMs) {
+  if (getNotificationPermission() !== 'granted') return
+  cancelTimerDone(mode)
+  const msgs = {
+    timer: { title: '✦ Focus session complete!', body: 'Your session is done. Take a break!' },
+    short: { title: '☕ Short break over!',       body: 'Time to get back to studying.' },
+    long:  { title: '🌿 Long break over!',        body: 'Refreshed? Time to focus again.' },
+  }
+  const m = msgs[mode] || msgs.timer
+  await scheduleAt({
+    id: `timer-done-${mode}`,
+    title: m.title,
+    body: m.body,
+    tag: 'timer-done',
+    targetDate: new Date(fireAtMs),
+  })
+}
+
+export function cancelTimerDone(mode) {
+  cancelScheduled(`timer-done-${mode}`)
+}
+
+
 // ─────────────────────────────────────────────────────────────────────────
 // 3. TASK REMINDER — X minutes before a task's time
 // ─────────────────────────────────────────────────────────────────────────

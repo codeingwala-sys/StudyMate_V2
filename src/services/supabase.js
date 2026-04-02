@@ -3,7 +3,10 @@ import { createClient } from '@supabase/supabase-js'
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL  || ''
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON || ''
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
+const safeUrl = SUPABASE_URL || 'https://dummy.supabase.co'
+const safeAnon = SUPABASE_ANON || 'dummy-anon-key'
+
+export const supabase = createClient(safeUrl, safeAnon, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -70,17 +73,26 @@ export async function getCurrentUser() {
 }
 
 export function isLoggedIn() {
-  // Synchronous check of the session in storage
-  // Note: The key used by supabase-js is 'sb-<project-id>-auth-token'
-  const projectRef = SUPABASE_URL.split('//')[1]?.split('.')[0]
-  if (!projectRef) return false
-  const storageKey = `sb-${projectRef}-auth-token`
-  const session = JSON.parse(localStorage.getItem(storageKey) || 'null')
-  if (!session?.access_token) return false
   try {
-    const payload = JSON.parse(atob(session.access_token.split('.')[1]))
+    const projectRef = SUPABASE_URL.split('//')[1]?.split('.')[0]
+    if (!projectRef) return false
+    const storageKey = `sb-${projectRef}-auth-token`
+    const sessionStr = localStorage.getItem(storageKey)
+    if (!sessionStr) return false
+    
+    const session = JSON.parse(sessionStr)
+    const token = session?.access_token
+    if (!token || typeof token !== 'string') return false
+
+    const parts = token.split('.')
+    if (parts.length !== 3) return false
+
+    const payload = JSON.parse(atob(parts[1]))
     return payload.exp * 1000 > Date.now()
-  } catch { return false }
+  } catch (e) {
+    console.warn('[StudyMate] Auth check error:', e)
+    return false
+  }
 }
 
 // ── DATA SYNC ─────────────────────────────────────────────────────────────────
@@ -157,6 +169,7 @@ export async function upsertTask(task) {
       date:    task.date || null,
       time:    task.time || null,
       done:    task.done || false,
+      updated_at: new Date().toISOString(),
     }, { onConflict: 'id' })
   
   if (error) console.error('Upsert task error:', error)
@@ -195,6 +208,7 @@ export async function upsertSession(session) {
       duration: session.duration || 0,
       type:     session.type || 'focus',
       date:     session.date || new Date().toISOString().slice(0, 10),
+      updated_at: new Date().toISOString(),
     }, { onConflict: 'id' })
   
   if (error) console.error('Upsert session error:', error)
@@ -202,17 +216,43 @@ export async function upsertSession(session) {
 }
 
 // ── Full sync ─────────────────────────────────────────────────────────────────
+export async function fetchPreferences() {
+  if (!supabaseConfigured) return null
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (error || !user) return null
+  return {
+    settings: user.user_metadata?.settings || null,
+    goals:    user.user_metadata?.goals    || null,
+    name:     user.user_metadata?.name     || 'Student',
+  }
+}
+
+export async function upsertPreferences(data) {
+  if (!supabaseConfigured) return { error: 'Supabase not configured' }
+  const { data: updated, error } = await supabase.auth.updateUser({
+    data: { ...data }
+  })
+  if (error) console.error('Upsert preferences error:', error)
+  return { data: updated, error }
+}
+
 export async function pullFromCloud() {
   if (!supabaseConfigured) return null
   const uid = await getUserId(); if (!uid) return null
   
   try {
-    const [notesRes, tasksRes, sessionsRes] = await Promise.all([
+    const [notesRes, tasksRes, sessionsRes, prefsRes] = await Promise.all([
       fetchNotes(), 
       fetchTasks(), 
-      fetchSessions()
+      fetchSessions(),
+      fetchPreferences()
     ])
-    return { notes: notesRes, tasks: tasksRes, sessions: sessionsRes }
+    return { 
+      notes: notesRes, 
+      tasks: tasksRes, 
+      sessions: sessionsRes,
+      preferences: prefsRes 
+    }
   } catch (e) {
     console.error('Pull from cloud error:', e)
     return null
@@ -223,11 +263,49 @@ export async function pushAllToCloud(storeData) {
   if (!supabaseConfigured) return
   const uid = await getUserId(); if (!uid) return
   
-  const { notes = [], tasks = [], timerSessions = [] } = storeData
+  const { notes = [], tasks = [], timerSessions = [], settings, goals, user } = storeData
   
-  await Promise.allSettled([
-    ...notes.map(n => upsertNote(n)),
-    ...tasks.map(t => upsertTask(t)),
-    ...timerSessions.slice(0, 500).map(s => upsertSession({ ...s, id: String(s.id || Date.now()) })),
-  ])
+  // ── Batch Upserts — High Performance & Reliability ──────────────────────────
+  // Instead of individual requests, send data in just 4 optimized batch calls.
+  try {
+    await Promise.allSettled([
+      // Notes
+      notes.length > 0 && supabase.from('notes').upsert(notes.map(n => ({
+        id: String(n.id),
+        user_id: uid,
+        title: n.title || '',
+        content: n.content || '',
+        html: n.html || '',
+        tags: n.tags || [],
+        checklists: n.checklists || [],
+        updated_at: n.updated_at || new Date().toISOString()
+      })), { onConflict: 'id' }),
+
+      // Tasks
+      tasks.length > 0 && supabase.from('tasks').upsert(tasks.map(t => ({
+        id: String(t.id),
+        user_id: uid,
+        title: t.title || '',
+        date: t.date || null,
+        time: t.time || null,
+        done: t.done || false,
+        updated_at: t.updated_at || new Date().toISOString()
+      })), { onConflict: 'id' }),
+
+      // Timer Sessions
+      timerSessions.length > 0 && supabase.from('sessions').upsert(timerSessions.slice(0, 500).map(s => ({
+        id: String(s.id || Date.now()),
+        user_id: uid,
+        duration: s.duration || 0,
+        type: s.type || 'focus',
+        date: s.date || new Date().toISOString().slice(0, 10),
+        updated_at: s.updated_at || new Date().toISOString()
+      })), { onConflict: 'id' }),
+
+      // Preferences (Auth Metadata)
+      upsertPreferences({ settings, goals, name: user?.name })
+    ].filter(Boolean))
+  } catch (e) {
+    console.warn('[StudyMate] Batch sync error:', e)
+  }
 }
