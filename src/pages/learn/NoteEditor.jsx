@@ -389,9 +389,12 @@ export default function NoteEditor() {
   const editorScrollRef = useRef(null)
   const fileInputRef = useRef(null)
   const autoSaveRef = useRef(null)
-  const noteIdRef = useRef(existing?.id || null)
-  const titleRef = useRef(existing?.title || '')
-  const categoryRef = useRef(existing?.tags?.[0] || '')
+  const initialTitle = (existing?.title === 'Untitled Note' || !existing?.title) ? '' : existing.title
+  const initialCat = (existing?.tags?.[0] === 'Uncategorized' || !existing?.tags?.[0]) ? '' : existing.tags[0]
+
+  const noteIdRef = useRef(id ? String(id) : null)
+  const titleRef = useRef(initialTitle)
+  const categoryRef = useRef(initialCat)
   const checklistsRef = useRef(existing?.checklists || [])
   const addNoteRef = useRef(addNote)
   const updateNoteRef = useRef(updateNote)
@@ -408,8 +411,8 @@ export default function NoteEditor() {
   useEffect(() => { updateNoteRef.current = updateNote }, [updateNote])
 
   // ── State ─────────────────────────────────────────────────────────────────
-  const [title, setTitle] = useState(existing?.title || '')
-  const [category, setCategory] = useState(existing?.tags?.[0] || '')
+  const [title, setTitle] = useState(initialTitle)
+  const [category, setCategory] = useState(initialCat)
   const [checklists, setChecklists] = useState(existing?.checklists || [])
   const [showCatDropdown, setShowCatDropdown] = useState(false)
   const [customCatInput, setCustomCatInput] = useState('')
@@ -436,6 +439,7 @@ export default function NoteEditor() {
   const [penColor, setPenColor] = useState('#60a5fa')
   const [penWidth, setPenWidth] = useState(3)
   const [penTool, setPenTool] = useState('pen')  // 'pen' | 'eraser'
+  const [isLoaded, setIsLoaded] = useState(false)
   const [selectionState, setSelectionState] = useState({
     bold: false, italic: false, underline: false, strike: false, highlight: false,
     listUnordered: false, listOrdered: false,
@@ -445,18 +449,30 @@ export default function NoteEditor() {
   // ── Save (defined first — needed by keyboard shortcuts & selection listeners) ──────────
   const saveNow = useCallback(() => {
     haptic.light()
-    const t2 = titleRef.current?.trim() || 'Untitled Note'
+    // 🛑 Hydration Guard: Don't save if we haven't loaded the real note yet
+    if (!isLoaded && noteIdRef.current) return
+
+    const t2 = titleRef.current?.trim() || ''
     const el = editorRef.current
     const html = el ? (el.innerHTML || '') : ''
     const content = el ? (el.textContent || '') : ''
-    if (!noteIdRef.current && !html.trim()) return
-    const noteData = { title: t2, content: content.trim(), html, tags: categoryRef.current ? [categoryRef.current] : [], checklists: checklistsRef.current }
+    
+    // 🛑 DATA INTEGRITY: Refuse to save a completely empty new note
+    if (!noteIdRef.current && !html.trim() && !t2) return
+
+    const noteData = { 
+      title: t2, 
+      content: content.trim(), 
+      html, 
+      tags: categoryRef.current ? [categoryRef.current] : [], 
+      checklists: checklistsRef.current 
+    }
+
     if (noteIdRef.current) {
       updateNoteRef.current(noteIdRef.current, noteData)
     } else {
-      const newId = Date.now(); noteIdRef.current = newId
+      const newId = Date.now(); noteIdRef.current = String(newId)
       addNoteRef.current({ ...noteData, id: newId, createdAt: new Date().toISOString() })
-      // Navigate to the new ID so refresh works correctly
       navigate(`/learn/notes/${newId}`, { replace: true })
     }
     setSavedDisplay(`Saved ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`)
@@ -531,6 +547,9 @@ export default function NoteEditor() {
       editorRef.current.innerHTML = existing.html || existing.content?.replace(/\n/g, '<br>') || ''
       attachImageListeners()
     }
+    // Mark as loaded after a small delay to ensure refs are set
+    const t = setTimeout(() => setIsLoaded(true), 500)
+    return () => clearTimeout(t)
   }, []) // eslint-disable-line
 
   // ── Attach image listeners ────────────────────────────────────────────────
