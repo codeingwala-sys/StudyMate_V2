@@ -49,7 +49,7 @@ export default function Router() {
               <Route path="/practice/mode1"   element={<ModeOne />} />
                <Route path="/practice/mode2"   element={<ModeTwo />} />
                <Route path="/practice/battle"  element={<BattleHub />} />
-               <Route path="/practice/battle/:id" element={<div style={{padding:20}}>Battle Room coming soon...</div>} />
+               <Route path="/practice/battle/:id" element={<BattleSession />} />
                <Route path="/practice/study-buddies" element={<StudyBuddies />} />
                <Route path="/practice/syllabus" element={<SyllabusHub />} />
                <Route path="/practice/results" element={<Results />} />

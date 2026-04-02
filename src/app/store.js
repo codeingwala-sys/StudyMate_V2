@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { upsertNote, deleteNoteRemote, upsertTask, deleteTaskRemote, upsertSession, pullFromCloud, pushAllToCloud } from '../services/supabase'
+import { upsertNote, deleteNoteRemote, upsertTask, deleteTaskRemote, upsertSession, pullFromCloud, pushAllToCloud, upsertPreferences } from '../services/supabase'
 
 const today     = () => new Date().toISOString().slice(0, 10)
 const yesterday = () => { const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10) }
@@ -40,11 +40,15 @@ export const useAppStore = create(
       streak:        0,
       todayStudied:  0,
       lastStreakDate:null,
+      streakRestores:[],
       syncing:       false,
       lastSyncedAt:  null,
 
       goals: { dailyMins: 60, weeklyTests: 3, streakTarget: 30 },
-      updateGoals: (data) => set(s => ({ goals: { ...s.goals, ...data } })),
+      updateGoals: (data) => {
+        set(s => ({ goals: { ...s.goals, ...data } }))
+        upsertPreferences({ goals: get().goals }).catch(() => {})
+      },
       personalBests: { bestDayMins: 0, bestScore: 0 },
 
       user: { name: 'Student' },
@@ -52,6 +56,7 @@ export const useAppStore = create(
 
       // ── NOTES ──────────────────────────────────────────────────────────────
       notes: [],
+      deletedNotes: [],
 
       addNote: (note) => {
         const n = { ...note, id: String(note.id || Date.now()), createdAt: new Date().toISOString() }
@@ -77,12 +82,16 @@ export const useAppStore = create(
 
       deleteNote: (id) => {
         const sId = String(id)
-        set(s => ({ notes: s.notes.filter(n => String(n.id) !== sId) }))
+        set(s => ({ 
+          notes: s.notes.filter(n => String(n.id) !== sId),
+          deletedNotes: [...(s.deletedNotes || []), { id: sId, timestamp: Date.now() }]
+        }))
         deleteNoteRemote(sId).catch(() => {})
       },
 
       // ── TASKS ───────────────────────────────────────────────────────────────
       tasks: [],
+      deletedTasks: [],
 
       addTask: (task) => {
         const t = { ...task, id: String(task.id || Date.now()), done: false }
@@ -99,7 +108,10 @@ export const useAppStore = create(
 
       deleteTask: (id) => {
         const sId = String(id)
-        set(s => ({ tasks: s.tasks.filter(t => String(t.id) !== sId) }))
+        set(s => ({ 
+          tasks: s.tasks.filter(t => String(t.id) !== sId),
+          deletedTasks: [...(s.deletedTasks || []), { id: sId, timestamp: Date.now() }]
+        }))
         deleteTaskRemote(sId).catch(() => {})
       },
 
@@ -123,6 +135,43 @@ export const useAppStore = create(
         return { streak, todayStudied, lastStreakDate: today(), personalBests }
       }),
 
+      restoreStreak: () => {
+        const s = get()
+        const now = new Date()
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+        const thisMonthRestores = (s.streakRestores || []).filter(d => d.startsWith(currentMonth))
+        if (thisMonthRestores.length >= 2) return false // Max 2 per month allowed
+        
+        const todayStr = today()
+        const studyDays = new Set(s.timerSessions.filter(x => (x.duration || 0) >= 1).map(x => x.date?.slice(0, 10)).filter(Boolean))
+        const startDay = studyDays.has(todayStr) ? todayStr : yesterday()
+        
+        let cursor = new Date(startDay)
+        let brokenDayStr = startDay
+        while (true) {
+          const dayStr = cursor.toISOString().slice(0, 10)
+          if (!studyDays.has(dayStr)) { brokenDayStr = dayStr; break }
+          cursor.setDate(cursor.getDate() - 1)
+        }
+        
+        const dummySession = {
+          id: `restore-${Date.now()}`,
+          date: new Date(brokenDayStr + 'T12:00:00Z').toISOString(),
+          duration: 1,
+          type: 'restore',
+          updated_at: new Date().toISOString()
+        }
+        
+        set(state => {
+          const newSessions = [dummySession, ...state.timerSessions]
+          const { streak, todayStudied } = calcStreakAndToday(newSessions)
+          const newRestores = [...(state.streakRestores || []), new Date().toISOString()]
+          return { timerSessions: newSessions, streak, todayStudied, streakRestores: newRestores }
+        })
+        upsertSession(dummySession).catch(() => {})
+        return true
+      },
+
       // ── CLOUD SYNC ──────────────────────────────────────────────────────────
       syncFromCloud: async () => {
         if (get().syncing) return
@@ -132,11 +181,16 @@ export const useAppStore = create(
           if (!cloud) { set({ syncing: false }); return }
 
           set(s => {
-            // Intelligent Merge: Newer updated_at wins.
-            const merge = (cloudArr, localArr, key = 'id') => {
+            // Intelligent Merge: Newer updated_at wins. Checks tombstones for ghosts.
+            const merge = (cloudArr, localArr, tombstoneArr, key = 'id') => {
               const map = {}
+              const tombMap = new Set((tombstoneArr || []).map(x => String(x.id)))
+
               ;(localArr || []).forEach(x => { map[String(x[key])] = x })
               ;(cloudArr || []).forEach(cloudItem => {
+                // If it was deleted offline uniquely, skip pulling it back
+                if (tombMap.has(String(cloudItem[key]))) return
+
                 const localItem = map[String(cloudItem[key])]
                 // Overwrite if:
                 // 1. No local item exists
@@ -152,21 +206,38 @@ export const useAppStore = create(
               return Object.values(map)
             }
 
-            const mergedNotes = merge(cloud.notes, s.notes)
-            const mergedTasks = merge(cloud.tasks, s.tasks)
-            const mergedSess  = merge(cloud.sessions, s.timerSessions)
+            const mergedNotes = merge(cloud.notes, s.notes, s.deletedNotes)
+            const mergedTasks = merge(cloud.tasks, s.tasks, s.deletedTasks)
+            const mergedSess  = merge(cloud.sessions, s.timerSessions, [])
             
             const { streak, todayStudied } = calcStreakAndToday(mergedSess)
             const personalBests = calcPersonalBests(mergedSess, s.testResults)
 
-            return {
+            // Retry offline deletions
+            ;(s.deletedNotes || []).forEach(d => deleteNoteRemote(d.id).catch(() => {}))
+            ;(s.deletedTasks || []).forEach(d => deleteTaskRemote(d.id).catch(() => {}))
+
+            // Keep tombstones manageable (clear older than 14 days)
+            const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000
+            const clnNotes = (s.deletedNotes || []).filter(d => d.timestamp > cutoff)
+            const clnTasks = (s.deletedTasks || []).filter(d => d.timestamp > cutoff)
+
+            const newState = {
               notes:         mergedNotes,
               tasks:         mergedTasks,
               timerSessions: mergedSess,
+              deletedNotes:  clnNotes,
+              deletedTasks:  clnTasks,
               streak, todayStudied, personalBests,
               lastSyncedAt:  new Date().toISOString(),
               syncing:       false,
             }
+
+            if (cloud.preferences?.settings) newState.settings = cloud.preferences.settings
+            if (cloud.preferences?.goals)    newState.goals    = cloud.preferences.goals
+            if (cloud.preferences?.name)     newState.user     = { ...s.user, name: cloud.preferences.name }
+
+            return newState
           })
 
           // After pulling and merging, push back the merged state to ensure cloud is up to date
@@ -195,7 +266,24 @@ export const useAppStore = create(
       }),
 
       settings: { pomoDuration: 25, shortBreak: 5, longBreak: 15 },
-      updateSettings: (data) => set(s => ({ settings: { ...s.settings, ...data } })),
+      updateSettings: (data) => {
+        set(s => ({ settings: { ...s.settings, ...data } }))
+        upsertPreferences({ settings: get().settings }).catch(() => {})
+      },
+
+      clearStudyData: (isSignOut = false) => set(s => {
+        if (isSignOut) {
+          return {
+            timerSessions: [], testResults: [], notes: [], tasks: [], 
+            deletedNotes: [], deletedTasks: [], learningData: {},
+            streak: 0, todayStudied: 0, lastSyncedAt: null,
+            settings: { pomoDuration: 25, shortBreak: 5, longBreak: 15 },
+            goals: { dailyMins: 60, weeklyTests: 3, streakTarget: 30 },
+            user: { name: 'Student' }
+          }
+        }
+        return { timerSessions: [], testResults: [], streak: 0, todayStudied: 0 }
+      }),
     }),
     { name: 'studymate-store' }
   )

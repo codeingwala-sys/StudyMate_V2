@@ -46,10 +46,13 @@ export default function App() {
       }
     }
 
-    // Periodic sync every 10 minutes
+    // Periodic sync every 60 seconds when app is visible
     const syncInterval = setInterval(() => {
-      if (isLoggedIn()) syncFromCloud().catch(() => {})
-    }, 10 * 60 * 1000)
+      if (isLoggedIn() && document.visibilityState === 'visible') {
+        syncFromCloud().catch(() => {})
+      }
+    }, 60 * 1000)
+
 
     document.addEventListener('visibilitychange', onVisible)
     return () => {
